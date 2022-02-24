@@ -104,7 +104,7 @@ class CloudRequest():
                 channel_name.append("error")
                 channel_unit.append("error")
                 channel_index.append("error")
-                channel_idx.append("error")
+                channel_id.append("error")
         return(channel_index, channel_name, channel_unit, channel_id)
 
     def get_measurement(self, SID, timestamp_start, timestamp_stop):
