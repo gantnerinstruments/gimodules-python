@@ -39,6 +39,14 @@ class GIController():
         self.stream_list = self.conn_cloud.stream_list
         self.stream_IDs = self.conn_cloud.stream_ID
         
+        
+        # init httpx
+        self.client = httpx.Client(
+            base_url=url,
+            auth=self.GIAuth(user, pw),
+            event_hooks={'response': [self._fix_content_encoding]},
+            http2=True)
+        
     def get_sources():
         return 
     
@@ -57,6 +65,7 @@ class GIController():
         
         #check if only one stream with this name exists else exception
         
+        #TODO - check if dict makes more sense
         return self.sensor_ids,self.sensor_names
 
     def get_timeseries_data(self, sensor_ids, resolution, start=None, end=None):
@@ -68,7 +77,7 @@ class GIController():
         sensor_indices = self._find_sensor_indices(sensor_ids)
         indices_q_string = self._build_sensorid_querystring(sensor_indices)
         
-        self.query = f"""
+        query = f"""
             {{
                 analytics(
                     from: {int(start.timestamp() * 1000)},
@@ -81,12 +90,14 @@ class GIController():
                 }}
             }}
         """
-        response = requests.post(self.conn_cloud.url+url_postfix, json={'query':self.query}, headers={'Authorization': 'Bearer ' + self.conn_cloud.auth_token})
-        #response.raise_for_status()
+        #response = requests.post(self.conn_cloud.url+url_postfix, json={'query':self.query}, headers={'Authorization': 'Bearer ' + self.conn_cloud.auth_token})
+        response = self.client.post(url_postfix, json=query)
+        response.raise_for_status()
         content = response.json()
         return content
     
     def _find_sensor_indices(self, picked_sensor_ids):
+        # To build the correct query, the corresponsing index of each variable is needed
         if hasattr(self, 'sensor_ids'):
             indices = []
             for i in picked_sensor_ids:
@@ -110,25 +121,43 @@ class GIController():
             """
         print(s)
         return s
-
-    def get_csv_export():
-        return
     
-    def get_raw_data():
-        return
-    class GIAuth():
-        
-        TOKEN = ''
-        
-        def __init__(self, user, pw, conn_cloud):
-            
-            conn_cloud.connect_gi_cloud
-            
-        
-        def update_auth_token(self):
-            return
 
+    def _fix_content_encoding(self, response):
+        if 'content-encoding' in response.headers:
+            response.headers['content-encoding'] = 'deflate'
+    
+    class GIAuth(httpx.Auth):
         
+        client_id = 'gibench'
+        client_secret = ''
+
+        def __init__(self, username, password):
+            self.username = username
+            self.password = password
+            self.token = None
+
+        def auth_flow(self, request):
+            if not self.token:
+                self.update_token(request)
+            request.headers['Authorization'] = self.token
+            response = yield request
+            if response.status_code == httpx.codes.UNAUTHORIZED:
+                self.update_token(request)
+                request.headers['Authorization'] = self.token
+                yield request
+
+        def update_token(self, request):
+            url = request.url.copy_with(path='/token')
+            payload = {
+                'username': self.username,
+                'password': self.password,
+                'grant_type': 'password',
+            }
+            auth = httpx.BasicAuth(self.client_id, self.client_secret)
+            response = httpx.post(url, data=payload, auth=auth)
+            response.raise_for_status()
+            content = response.json()
+            self.token = 'Bearer ' + content['access_token']
         
-        
-        
+    
