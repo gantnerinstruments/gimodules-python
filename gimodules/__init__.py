@@ -1,3 +1,0 @@
-from gimodules import (
-   CloudConnect
-)

@@ -128,4 +128,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-/gimodules/modules_tester.ipynb
+modules_tester.ipynb
+
+test_venv

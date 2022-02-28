@@ -2,7 +2,8 @@ from fileinput import filename
 import pwd
 import string
 from urllib import response
-from CloudConnect import CloudRequest as GINSCloud
+#from CloudConnect import CloudRequest as GINSCloud
+from gimodules.CloudConnect import CloudRequest as GINSCloud
 import logging
 import datetime as dt
 import requests
