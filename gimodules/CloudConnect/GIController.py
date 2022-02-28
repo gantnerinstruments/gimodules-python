@@ -1,3 +1,4 @@
+from fileinput import filename
 import pwd
 import string
 from urllib import response
@@ -123,11 +124,61 @@ class GIController():
         print(s)
         return s
     
-    def get_data_as_csv(self, sensor_ids, resolution, start=None, end=None):
-           return
+    def get_data_as_csv(self, columns: dict, resolution, start=None, end=None, decimal_sep='.'):
+        
+        # columns: field: "stream_id:sensorid" or sensorid
+        # headers: ["temperature", "C"]
+        start = start or dt.datetime(2021, 2, 28, 10, 0, 0, tzinfo=dt.timezone.utc)
+        end = end or dt.datetime.now(dt.timezone.utc)
+        
+        url_postfix = '/__api__/gql'
+        substring = ''
+        filename = ''
+        for key,value in columns.items():
+            if value[1] not in filename:
+                filename += value[1]
+            concated = '"' +  '","'.join(value) + '"'
+            s = f"""{{field: "{key}", headers: [{concated}]}},"""
+            substring += s
+            
+        filename += '_' + start.strftime("%Y%m%d%H%M%S") + '_' + end.strftime("%Y%m%d%H%M%S") + '_' + resolution + '.csv'
+        self.query = f"""
+            {{
+                exportCSV(
+                    resolution: {resolution}
+                    from: {int(start.timestamp() * 1000)},
+                    to: {int(end.timestamp() * 1000)},
+                    sid: "{self.stream_id}"
+                    timezone: "UTC"
+                    filename: "{filename}"
+                    columns: [
+                        {{
+                            field: "ts",
+                            headers: ["datetime"],
+                            dateFormat: "%Y-%m-%dT%H:%M:%S"
+                        }},
+                        {{
+                            field: "ts",
+                            headers: ["time","","","[s since 01.01.1970]"]
+                        }},
+                        {substring}
+                    ]
+                ) {{
+                    file
+                }}
+            }}
+        """
+        response = self.client.post(url_postfix, json={'query': self.query}, timeout=60)
+        response.raise_for_status()
+        content = response.content
+        # TODO check if chuncked fetching is possible
+        csv_file = open(filename, 'wb')
+        csv_file.write(content)
+        csv_file.close()
+        return content
     
     def get_raw_data(self, sensor_ids, start=None, end=None):
-        # Request: columns: ["ts", "nanos", "a1"]
+        # Request: columns: ["ts", "nanos", "a1", "a2" ...]
         # Return: ts: time in ms since epoch - nanos: time in nanos relative to ts
         # This function only applies to measurement queries, since long timespans are timed out
         
