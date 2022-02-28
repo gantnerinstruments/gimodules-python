@@ -1,5 +1,6 @@
 import pwd
 import string
+from urllib import response
 from CloudConnect import CloudRequest as GINSCloud
 import logging
 import datetime as dt
@@ -91,8 +92,8 @@ class GIController():
             }}
         """
         #response = requests.post(self.conn_cloud.url+url_postfix, json={'query':self.query}, headers={'Authorization': 'Bearer ' + self.conn_cloud.auth_token})
-        response = self.client.post(url_postfix, json=query)
-        response.raise_for_status()
+        response = self.client.post(url_postfix, json={'query':query})
+        #response.raise_for_status()
         content = response.json()
         return content
     
@@ -121,6 +122,40 @@ class GIController():
             """
         print(s)
         return s
+    
+    def get_data_as_csv(self, sensor_ids, resolution, start=None, end=None):
+           return
+    
+    def get_raw_data(self, sensor_ids, start=None, end=None):
+        # Request: columns: ["ts", "nanos", "a1"]
+        # Return: ts: time in ms since epoch - nanos: time in nanos relative to ts
+        # This function only applies to measurement queries, since long timespans are timed out
+        
+        start = start or dt.datetime(2022, 2, 28, 10, 0, 0, tzinfo=dt.timezone.utc)
+        end = end or dt.datetime.now(dt.timezone.utc)
+        
+        url_postfix = '/__api__/gql'
+        self.sensor_indices = self._find_sensor_indices(sensor_ids)
+        
+        indices_string = '"' +  '","'.join(self.sensor_indices) + '"'
+        query = f"""
+            {{
+                Raw(
+                    columns: ["ts", "nanos", {indices_string}]
+                    from: {int(start.timestamp() * 1000)},
+                    to: {int(end.timestamp() * 1000)},
+                    sid: "{self.stream_id}"
+                ) {{
+                    data
+                }}
+            }}
+        """
+        
+        #timeout = httpx.Timeout(connect_timeout=5, read_timeout=5 * 60, write_timeout=5)
+        response = self.client.post(url_postfix, json={'query': query}, timeout=60)
+        response.raise_for_status()
+        content = response.json()
+        return content
     
 
     def _fix_content_encoding(self, response):
