@@ -1,14 +1,18 @@
 from fileinput import filename
-import pwd
-import string
+from multiprocessing.sharedctypes import Value
 from urllib import response
 #from CloudConnect import CloudRequest as GINSCloud
 from gimodules.CloudConnect import CloudRequest as GINSCloud
+from gimodules.PyQStationConnectCloud import GInsDataCreateBuffer as QStream
+from gimodules.CloudConnect import utils
 import logging
+import uuid
 import datetime as dt
+from dateutil import tz
 import requests
 #from gimodules.CloudConnect.CloudRequest import CloudRequest
 import httpx
+import pandas as pd
 
 
 # When logging to a file
@@ -176,6 +180,8 @@ class GIController():
         csv_file = open(filename, 'wb')
         csv_file.write(content)
         csv_file.close()
+        
+        # return as df
         return content
     
     def get_raw_data(self, sensor_ids, start=None, end=None):
@@ -213,6 +219,114 @@ class GIController():
     def _fix_content_encoding(self, response):
         if 'content-encoding' in response.headers:
             response.headers['content-encoding'] = 'deflate'
+            
+        
+    def get_streamid(self, name):
+        
+        if self.stream_list.count(name) == 1:
+            return [self.stream_list.index(name)]
+        elif self.stream_list.count(name) > 1:
+            raise ValueError('Multiple streams with the same name in list')
+                
+        return []
+    
+    def _generate_stream_write_id(self, stream_id=None):
+        
+        if stream_id is not None and stream_id in self.stream_IDs:
+            return stream_id
+        else:
+            return str(uuid.uuid4())
+    
+    def _check_last_stream_ts(self, stream_id):
+        write_stream_id = self._generate_stream_write_id(stream_id)
+        
+        if write_stream_id in self.stream_IDs:
+            try:
+                last_ts = self.conn_cloud.stream_last_ts[self.stream_IDs.index(stream_id)]
+            except e:
+                KeyError(f'check_last_stream_ts: {e}')
+        else:
+            last_ts = 0
+            
+        return last_ts
+    
+    def _check_first_csv_ts(self, csv_path):
+        try:
+            first_lines = pd.read_csv(csv_path,encoding='cp1252',nrows=10,sep=';')#decofing AINSI files on windows or linux
+            
+            if (self.conn_cloud.DateTimeFmtColumn2 == "" and self.conn_cloud.DateTimeFmtColumn3 == ""):
+                read_date=first_lines.iat[self.conn_cloud.ValuesStartRowIndex-1,0]# we read the first measurement line, first coulmn
+                read_date = utils.remove_hex_from_string(read_date) # rm cloud exported hex containments
+                date_time_obj = dt.datetime.strptime(read_date+";",self.py_formatter+";"+self.conn_cloud.DateTimeFmtColumn2)
+            elif self.conn_cloud.DateTimeFmtColumn2 != "":
+                read_date=first_lines.iat[self.conn_cloud.ValuesStartRowIndex-1,0]# we read the first measurement line, first coulmn
+                read_date = utils.remove_hex_from_string(read_date)
+                read_time=first_lines.iat[self.conn_cloud.ValuesStartRowIndex-1,1]# we read the first measurement lin, second coulmn 
+                date_time_obj = dt.datetime.strptime(read_date+";"+read_time,self.py_formatter+";"+self.conn_cloud.DateTimeFmtColumn2)
+            
+            csv_timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz('UTC'))
+            csv_timestamp_local = csv_timestamp_utc.astimezone(tz.gettz('Europe / Paris'))
+            csv_timestamp=dt.datetime.timestamp(csv_timestamp_local)
+        except (FileNotFoundError) as e:
+            logging.error('check_csv_ts: File path is wrong')
+        except Exception as e:
+            logging.error('Could not read the csv - check the config:', e)
+            csv_timestamp=0
+        timestamp_tmp = dt.datetime.fromtimestamp(csv_timestamp)
+        timestamp_tmp.strftime('%Y-%m-%d %H:%M:%S')
+        
+        logging.warning("first csv timestamp",csv_timestamp,timestamp_tmp.strftime('%d.%m.%Y %H:%M:%S'))
+        return csv_timestamp
+    
+    def set_csv_import_configs(self, config: dict, py_formatter=None):
+        self.conn_cloud.ColumnSeparator = config.get("ColumnSeparator")
+        self.conn_cloud.DecimalSeparator= config.get("DecimalSeparator")
+        self.conn_cloud.NameRowIndex= config.get("NameRowIndex")
+        self.conn_cloud.UnitRowIndex= config.get("UnitRowIndex")
+        self.conn_cloud.ValuesStartRowIndex= config.get("ValuesStartRowIndex")
+        self.conn_cloud.ValuesStartColumnIndex=config.get("ValuesStartColumnIndex")
+
+        # Column 1: Date and Time -> specified in Gantner http docs
+        # e.g.:
+        # 11.10.2019 13:00:00.000000 -> %d.%m.%Y %H:%M:%S.%F
+        # 8/14/2010 10:38:00 AM -> %m/%d/%Y %I:%M:%S %p
+        self.conn_cloud.DateTimeFmtColumn1= config.get("DateTimeFmtColumn1")
+        self.conn_cloud.DateTimeFmtColumn2= config.get("DateTimeFmtColumn2") or ""
+        self.conn_cloud.DateTimeFmtColumn3= config.get("DateTimeFmtColumn3") or ""
+        
+        # Needed if python formatter differs from C++ formatter
+        # e.g. "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
+        if py_formatter:
+            self.py_formatter = py_formatter
+        else:
+            self.py_formatter = config.get("DateTimeFmtColumn1")
+    
+    
+    
+    def import_csv_in_stream(self, csv_path, stream_name=None):
+        import time
+        
+        if stream_name is not None:
+                stream_id = self.get_streamid(stream_name)
+                if stream_id == []:
+                    stream_id = self._generate_stream_write_id(stream_name)
+                    
+        if self._check_first_csv_ts(csv_path) > (self._check_last_stream_ts(stream_id)/1000):
+            self.conn_cloud.create_import_session_csv(stream_id, stream_name)
+            
+            with open(csv_path, 'rb') as f:
+                data_upload = f.read()
+            
+            response = self.conn_cloud.import_file_csv(data_upload)
+            response.raise_for_status()
+            time.sleep(1)
+            self.conn_cloud.delete_import()
+        
+            logging.warning('import response:', response.json())
+        else:
+            logging.warning('Import failed : first imported csv value  is before the last database timestamp, but must begin after')
+            
+        #TODO- Return stream name 
     
     class GIAuth(httpx.Auth):
         
