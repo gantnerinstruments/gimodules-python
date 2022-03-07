@@ -1,5 +1,3 @@
-from fileinput import filename
-from multiprocessing.sharedctypes import Value
 from urllib import response
 #from CloudConnect import CloudRequest as GINSCloud
 from gimodules.CloudConnect import CloudRequest as GINSCloud
@@ -16,6 +14,7 @@ import pandas as pd
 
 # When logging to a file
 #logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.DEBUG)
+logging.getLogger().setLevel(logging.INFO)
 
 class GIController():
     'This Controller handles and abstracts the requests made to the GICloud'
@@ -40,11 +39,6 @@ class GIController():
         self.conn_cloud.list_gi_cloud_sources()
         # write stream name and id into lists
         self.conn_cloud.print_stream_ID() # change 
-
-        #save sources information
-        #self.stream_list = self.conn_cloud.stream_list
-        #self.stream_IDs = self.conn_cloud.stream_ID
-        
         
         # init httpx
         self.client = httpx.Client(
@@ -56,7 +50,7 @@ class GIController():
     def get_sources(self):
         self.conn_cloud.list_gi_cloud_sources()
         self.conn_cloud.print_stream_ID()
-        logging.warning('refreshed streams')
+        logging.info('refreshed streams')
         return
     
 
@@ -249,10 +243,10 @@ class GIController():
         else:
             last_ts = 0
             
-        logging.warning(f"last ts on stream:{last_ts}")
+        logging.info(f"last ts on stream:{last_ts}")
         return last_ts
     
-    def _check_first_csv_ts(self, csv_path):
+    def _check_first_csv_ts(self, csv_path, timezone=None):
         try:
             first_lines = pd.read_csv(csv_path,encoding='cp1252',nrows=10,sep=';')#decofing AINSI files on windows or linux
             
@@ -273,7 +267,7 @@ class GIController():
             timestamp_tmp = dt.datetime.fromtimestamp(csv_timestamp)
             timestamp_tmp = timestamp_tmp.strftime('%Y-%m-%d %H:%M:%S')
         
-            logging.warning(f"first csv timestamp to import:{csv_timestamp}-{timestamp_tmp}")
+            logging.info(f"first csv timestamp to import:{csv_timestamp}-{timestamp_tmp}")
             return csv_timestamp
         except (FileNotFoundError) as e:
             logging.error('check_csv_ts: File path is wrong')
@@ -334,7 +328,7 @@ class GIController():
             self.conn_cloud.delete_import()
         
             #logging.warning('import response:', response.json())
-            logging.warning('import sucessful')
+            logging.info('import sucessful')
         else:
             logging.warning('Import failed : first imported csv value  is before the last database timestamp, but must begin after')
             
