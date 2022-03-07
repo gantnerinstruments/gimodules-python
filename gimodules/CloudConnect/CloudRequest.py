@@ -132,8 +132,8 @@ class CloudRequest():
                 self.stream_list.append(self.sources_res['Data'][i]["Name"])
                 self.stream_ID.append(self.sources_res['Data'][i]["Id"])
                 self.stream_last_ts.append(self.sources_res['Data'][i]["LastTimeStamp"])
-                print("Name: ",self.sources_res['Data'][i]["Name"],"Id:",self.sources_res['Data'][i]["Id"],\
-                      "last ts",self.sources_res['Data'][i]["LastTimeStamp"])
+                #print("Name: ",self.sources_res['Data'][i]["Name"],"Id:",self.sources_res['Data'][i]["Id"],\
+                #      "last ts",self.sources_res['Data'][i]["LastTimeStamp"])
             except:
                 print("error")
     def variable_mapping(self,ID_stream):

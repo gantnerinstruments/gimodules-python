@@ -42,8 +42,8 @@ class GIController():
         self.conn_cloud.print_stream_ID() # change 
 
         #save sources information
-        self.stream_list = self.conn_cloud.stream_list
-        self.stream_IDs = self.conn_cloud.stream_ID
+        #self.stream_list = self.conn_cloud.stream_list
+        #self.stream_IDs = self.conn_cloud.stream_ID
         
         
         # init httpx
@@ -53,8 +53,11 @@ class GIController():
             event_hooks={'response': [self._fix_content_encoding]},
             http2=True)
         
-    def get_sources():
-        return 
+    def get_sources(self):
+        self.conn_cloud.list_gi_cloud_sources()
+        self.conn_cloud.print_stream_ID()
+        logging.warning('refreshed streams')
+        return
     
 
     def filter_data(self, **kwargs):
@@ -222,16 +225,15 @@ class GIController():
         
     def get_streamid(self, name):
         
-        if self.stream_list.count(name) == 1:
-            return [self.stream_list.index(name)]
-        elif self.stream_list.count(name) > 1:
+        if self.conn_cloud.stream_list.count(name) == 1:
+            return self.conn_cloud.stream_ID[self.conn_cloud.stream_list.index(name)]
+        elif self.conn_cloud.stream_list.count(name) > 1:
             raise ValueError('Multiple streams with the same name in list')
-                
         return []
     
     def _generate_stream_write_id(self, stream_id=None):
         
-        if stream_id is not None and stream_id in self.stream_IDs:
+        if stream_id is not None and stream_id in self.conn_cloud.stream_ID:
             return stream_id
         else:
             return str(uuid.uuid4())
@@ -239,15 +241,15 @@ class GIController():
     def _check_last_stream_ts(self, stream_id):
         write_stream_id = self._generate_stream_write_id(stream_id)
         
-        if write_stream_id in self.stream_IDs:
+        if write_stream_id in self.conn_cloud.stream_ID:
             try:
-                last_ts = self.conn_cloud.stream_last_ts[self.stream_IDs.index(stream_id)]
-                logging.warning(f"last ts on stream:{last_ts}")
-            except e:
+                last_ts = self.conn_cloud.stream_last_ts[self.conn_cloud.stream_ID.index(stream_id)]
+            except Exception as e:
                 KeyError(f'check_last_stream_ts: {e}')
         else:
             last_ts = 0
             
+        logging.warning(f"last ts on stream:{last_ts}")
         return last_ts
     
     def _check_first_csv_ts(self, csv_path):
@@ -309,11 +311,17 @@ class GIController():
     def import_csv_in_stream(self, csv_path, stream_name=None):
         import time
         
+        self.get_sources()
+        
         if stream_name is not None:
                 stream_id = self.get_streamid(stream_name)
                 if stream_id == []:
                     stream_id = self._generate_stream_write_id(stream_name)
-                    
+        
+        if (utils.is_valid_uuid(stream_id) == False):
+            logging.error(f'uuid is wrong{stream_id}; break')
+            return
+            
         if self._check_first_csv_ts(csv_path) > (self._check_last_stream_ts(stream_id)/1000):
             self.conn_cloud.create_import_session_csv(stream_id, stream_name)
             
