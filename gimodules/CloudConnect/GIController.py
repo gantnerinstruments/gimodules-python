@@ -3,7 +3,6 @@ from multiprocessing.sharedctypes import Value
 from urllib import response
 #from CloudConnect import CloudRequest as GINSCloud
 from gimodules.CloudConnect import CloudRequest as GINSCloud
-from gimodules.PyQStationConnectCloud import GInsDataCreateBuffer as QStream
 from gimodules.CloudConnect import utils
 import logging
 import uuid
@@ -243,6 +242,7 @@ class GIController():
         if write_stream_id in self.stream_IDs:
             try:
                 last_ts = self.conn_cloud.stream_last_ts[self.stream_IDs.index(stream_id)]
+                logging.warning(f"last ts on stream:{last_ts}")
             except e:
                 KeyError(f'check_last_stream_ts: {e}')
         else:
@@ -267,16 +267,19 @@ class GIController():
             csv_timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz('UTC'))
             csv_timestamp_local = csv_timestamp_utc.astimezone(tz.gettz('Europe / Paris'))
             csv_timestamp=dt.datetime.timestamp(csv_timestamp_local)
+            
+            timestamp_tmp = dt.datetime.fromtimestamp(csv_timestamp)
+            timestamp_tmp = timestamp_tmp.strftime('%Y-%m-%d %H:%M:%S')
+        
+            logging.warning(f"first csv timestamp to import:{csv_timestamp}-{timestamp_tmp}")
+            return csv_timestamp
         except (FileNotFoundError) as e:
             logging.error('check_csv_ts: File path is wrong')
         except Exception as e:
             logging.error('Could not read the csv - check the config:', e)
             csv_timestamp=0
-        timestamp_tmp = dt.datetime.fromtimestamp(csv_timestamp)
-        timestamp_tmp.strftime('%Y-%m-%d %H:%M:%S')
         
-        logging.warning("first csv timestamp",csv_timestamp,timestamp_tmp.strftime('%d.%m.%Y %H:%M:%S'))
-        return csv_timestamp
+        
     
     def set_csv_import_configs(self, config: dict, py_formatter=None):
         self.conn_cloud.ColumnSeparator = config.get("ColumnSeparator")
@@ -322,7 +325,8 @@ class GIController():
             time.sleep(1)
             self.conn_cloud.delete_import()
         
-            logging.warning('import response:', response.json())
+            #logging.warning('import response:', response.json())
+            logging.warning('import sucessful')
         else:
             logging.warning('Import failed : first imported csv value  is before the last database timestamp, but must begin after')
             
