@@ -23,8 +23,6 @@ class GIController():
 
     def __init__(self):
         self.conn_cloud = GINSCloud.CloudRequest()
-
-        
         
     def login(self, url, user, pw):
         self.conn_cloud.url = url
@@ -36,24 +34,23 @@ class GIController():
         logging.info(f'Connection to {url} established.')
         
         #Fetch sources as json via login
-        self.conn_cloud.list_gi_cloud_sources()
+        #self.conn_cloud.list_gi_cloud_sources()
         # write stream name and id into lists
-        self.conn_cloud.print_stream_ID() # change 
+        #self.conn_cloud.print_stream_ID() # change 
         
         # init httpx
         self.client = httpx.Client(
             base_url=url,
             auth=self.GIAuth(user, pw),
             event_hooks={'response': [self._fix_content_encoding]},
-            http2=True)
+            http2=False)
         
     def get_sources(self):
         self.conn_cloud.list_gi_cloud_sources()
         self.conn_cloud.print_stream_ID()
         logging.info('refreshed streams')
-        return
+        return self.conn_cloud.sources_res['Data']
     
-
     def filter_data(self, **kwargs):
         return
     
@@ -323,10 +320,13 @@ class GIController():
                 data_upload = f.read()
             
             response = self.conn_cloud.import_file_csv(data_upload)
-            response.raise_for_status()
             time.sleep(1)
             self.conn_cloud.delete_import()
-        
+            try:
+                response.raise_for_status()
+            except:
+                logging.error(f'Failed:{response.content}')
+                return
             #logging.warning('import response:', response.json())
             logging.info('import sucessful')
         else:

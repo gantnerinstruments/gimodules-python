@@ -136,6 +136,7 @@ class CloudRequest():
                 #      "last ts",self.sources_res['Data'][i]["LastTimeStamp"])
             except:
                 print("error")
+                
     def variable_mapping(self,ID_stream):
         query="{\n  variableMapping(sid: \""+ID_stream+"\") {\n    sid\n    columns {\n      name\n      variables {\n        id\n        dataType\n        name\n        unit\n      }\n    }\n  }\n}"
         url_list=self.url+'/__api__/gql'
@@ -147,7 +148,8 @@ class CloudRequest():
             print("error mapping")
             request_map="error"
         return(request_map)
-    def print_var_mapping(self,request_map_res):
+    
+    def get_var_mapping(self,request_map_res):
         channel_name=[]
         channel_unit=[]
         channel_index=[]
@@ -163,7 +165,7 @@ class CloudRequest():
                 channel_name.append("error")
                 channel_unit.append("error")
                 channel_index.append("error")
-                channel_idx.append("error")
+                channel_index.append("error")
         return(channel_index,channel_name,channel_unit,channel_id)
         
         
