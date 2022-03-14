@@ -24,6 +24,11 @@ class BaseCsv():
    def sort_list(list):
       """ Sort list on splitting with first '-' and '.' """
       return sorted(list, key=lambda x: int(x.split('-')[1].split('.')[0]))
+   
+   @staticmethod
+   def sort_list_on_splitter(list, split1, split2):
+      """ Sort list on splitting with first '-' and '.' """
+      return sorted(list, key=lambda x: int(x.split(split1)[1].split(split2)[0]))
       
    @staticmethod
    def split(filehandler, delimiter=',', row_limit=10000,
