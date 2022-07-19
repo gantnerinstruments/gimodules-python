@@ -12,11 +12,14 @@ import json
 import re
 import uuid
 import time 
+import logging
 
 from dataclasses import dataclass
 from requests.auth import HTTPBasicAuth 
 from enum import Enum
 from dateutil import tz
+
+from gimodules.CloudConnect import utils
 
 
 class CloudRequest():
@@ -71,17 +74,18 @@ class CloudRequest():
             res = requests.post(login_url, data = login_form, headers = headers, auth = auth)
             if res.status_code == 200:
                 self.login_token = res.json()
-                print("Login successful")
+                logging.info("Login successful")
                 self.get_all_stream_metadata()
                 self.print_streams()
                 self.get_all_var_metadata()
             else: 
-                print(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                logging.error(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as e:
-            print(e)
+            logging.warning(e)
         
     def get_all_stream_metadata(self): 
-        """Loads the available meta information from all available streams. The data is stored in data classes and is accessible via the .streams attribute. 
+        """Loads the available meta information from all available streams. 
+        The data is stored in data classes (GIStream) and is accessible via the .streams attribute. 
         """
         # check that auth_token exist
         if self.login_token is not None: 
@@ -104,22 +108,22 @@ class CloudRequest():
                         # store data in dict with dataclass
                         self.streams[name] = GIStream(name, id, sample_rate_hz, first_ts, last_ts, index)
                 else: 
-                    print(f"failed! \nResponse Code: {res.status_code} \nReason: {res.reason}")
+                    logging.error(f"failed! \nResponse Code: {res.status_code} \nReason: {res.reason}")
             except Exception as e:
-                print(e)
+                logging.warning(e)
         else: 
-            print("You have no valid access token! \nPlease login first.")
+            logging.error("You have no valid access token! \nPlease login first.")
 
     def print_streams(self):
         if self.streams is not None:
             for s in self.streams: 
-                print(f"{'Streamname:':<20}{self.streams[s].name} \
+                logging.info(f"{'Streamname:':<20}{self.streams[s].name} \
                         \n{'Streamid:':<20}{self.streams[s].id} \
                         \n{'first ts:':<20}{self.streams[s].first_ts} {dt.datetime.utcfromtimestamp(float(self.streams[s].first_ts)/1000).strftime('%Y-%m-%d %H:%M:%S')} \
                         \n{'last ts:':<20}{self.streams[s].last_ts} {dt.datetime.utcfromtimestamp(float(self.streams[s].last_ts)/1000).strftime('%Y-%m-%d %H:%M:%S')} \
                         \n{'Samplerate:':<20}{self.streams[s].sample_rate_hz}\n")
         else: 
-            print("You have no loaded Streams")
+            logging.info("You have no loaded Streams")
 
     def get_all_var_metadata(self):
         """Loads the available meta information from all available variable. The data is stored in data classes and is accessible via the .stream_variabels attribute. 
@@ -138,7 +142,7 @@ class CloudRequest():
                         res = res.json()
                         for i in range(0, len(res['data']['variableMapping']['columns'])):
                             sid = res['data']['variableMapping']['sid']     
-                            index = res['data']['variableMapping']['columns'][i]['name'] # Var index in GI System
+                            index = res['data']['variableMapping']['columns'][i]['name'] # Var index in GI System - needed for gql queries
                             name = res['data']['variableMapping']['columns'][i]['variables'][0]['name'] # Var name defined by user
                             data_type = res['data']['variableMapping']['columns'][i]['variables'][0]['dataType']
                             id = res['data']['variableMapping']['columns'][i]['variables'][0]['id']
@@ -147,16 +151,17 @@ class CloudRequest():
                             # create Enum for filtering units
                             if unit not in unit_names and unit != "": 
                                 unit_names.append(unit)
-                            # Create uniqe name for obj
+                            # Create unique variable name /with stream
+                            # TODO - if multiple variables with same name exists (in one stream) the name will be overwritten
                             self.stream_variabels[f"{s}__{name}"] = GIStreamVariable(id, name, index, unit, data_type, sid)
                     else: 
-                        print(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                        logging.error(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
                 except Exception as e:
-                    print(e)
+                    logging.warning(e)
             # create Enum for available units
             self.units = Enum('Units', list(unit_names))
         else: 
-            print("You have no loaded Streams. \nPlease load first Streams.")
+            logging.info("You have no loaded Streams. \nPlease load first Streams.")
 
     def variable_info(self):
         '''use this endpoint to read information for all available online variables'''
@@ -168,9 +173,9 @@ class CloudRequest():
                 res = res.json()
                 ## TODO continue here
             else: 
-                print(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                logging.error(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as e:
-            print(e)
+            logging.warning(e)
             
     def find_var(self, var_name: str): 
         """Searches the existing variables. 
@@ -179,7 +184,7 @@ class CloudRequest():
             var_name (str): Var_name or Substring
 
         Returns:
-            dataclass (obj): List of variables found
+            Dict ([str,GIStreamVariable]): List of variables found
         """
 
         if type(var_name) == list: 
@@ -192,7 +197,7 @@ class CloudRequest():
             match = [x for x in self.stream_variabels.keys() if var_name in x]
 
         if len(match) == 0 and match is not None: 
-            print("No var found.")
+            logging.info("No var found.")
         else:
             result = {}  
             for m in match:
@@ -202,7 +207,7 @@ class CloudRequest():
 
     def filter_var_attr(self, attr: str, value: str): 
         """
-        Serach for stream_variables with a certain attribute
+        Search for stream_variables with a certain attribute
 
         Args:
             attr (str): e.g. unit
@@ -216,6 +221,20 @@ class CloudRequest():
             match = [x for x in self.stream_variabels.values() if getattr(x, attr, "") == value]
             return match
         return None
+    
+    def _build_sensorid_querystring(self, indices:list, aggregations=None):
+        #TODO - enable multiple aggregations
+        agg = """
+                avg
+        """
+        s = ""
+        for i in indices:
+            s = s+f"""
+                {i} {{
+                    {agg}
+                }}
+            """
+        return s
 
     def get_var_data(self, sid:str, index_list:list, start_date:str, end_date:str, resolution:str = 'nanos'):
         """Returns a np.matrix of data and pandas df with timestamps and values directly from a data stream
@@ -248,16 +267,23 @@ class CloudRequest():
                 to: " + tse + ") {\n    data\n  }\n}\n"             
         
         elif len(index_list) > 0:
-            for j in range(0,len(index_list)):
-                selected_index_string = selected_index_string + index_list[j]+"{\n      avg\n}"
+            selected_index_string = self._build_sensorid_querystring(index_list)
 
-            self.query ="{\n  analytics(from: "+tss+", \
-                to: " + tse + ", \
-                resolution: " + resolution + " \
-                sid: \"" + sid + "\") \
-                {\n    ts\n    " + selected_index_string + "\n}\n}\n"
+            self.query = f"""
+            {{
+                analytics(
+                    from: {tss},
+                    to: {tse},
+                    resolution: {resolution},
+                    sid: "{sid}"
+                ) {{
+                    ts
+                    {selected_index_string}
+                }}
+            }}
+        """
         else:
-            print("no variable selected")
+            logging.info("no variable selected")
 
         url_list = self.url+'/__api__/gql'
         headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
@@ -282,7 +308,7 @@ class CloudRequest():
                 none_index=np.where(nonecheck == True)
 
                 #none number can be at the begining or at the end.
-                if len (none_index[0])>0:
+                if len(none_index[0])>0:
                     first_none=none_index[0][0]
                     last_none=none_index[0][-1]
                     if last_none==len(self.data)-1:
@@ -298,9 +324,9 @@ class CloudRequest():
             # Show error Message from Server
             else: 
                 error = json.loads(res.text)
-                print(f"Fetching Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
+                logging.error(f"Fetching Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
         except Exception as e:
-            print(e)
+            logging.warning(e)
 
     def __get_column_names(self, sid:str, index_list:list): 
         """
@@ -339,7 +365,7 @@ class CloudRequest():
             timestamp= int(dt.datetime.timestamp(timestamp_local)) * 1000 
             return timestamp
         except Exception as err:
-            print("Fehler beim konvertieren des Zeitstempels:", dt.datetime.now, err)
+            logging.error("Fehler beim konvertieren des Zeitstempels:", dt.datetime.now, err)
 
     def get_measurement_limit(self, sid:str, limit:str): 
         """
@@ -358,9 +384,9 @@ class CloudRequest():
             if res.status_code == 200: 
                 self.request_measurement_res = res.json()
             else: 
-                print(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                logging.error(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as err:
-            print(err)
+            logging.warning(err)
 
     def print_measurement(self): # TODO test function
         limit = len(self.request_measurement_res['data']['measurementPeriods'])
@@ -400,10 +426,9 @@ class CloudRequest():
             if res.status_code == 200: 
                 self.import_session_res_udbf=res.json()
             else:   
-                print(f"Creating import session failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                logging.error(f"Creating import session failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as err:
-            print("create_import_session failed")
-            print(err)
+            logging.error(f"create_import_session failed:{err}")
             res="error"
         return (res)
     
@@ -423,12 +448,11 @@ class CloudRequest():
         try:
             res = requests.post(url_list,headers=header_list,data=file)
             if res.status_code == 200: 
-                print("ubdf succesfully imported")
+                logging.info("ubdf succesfully imported")
             else:   
-                print(f"Import failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                logging.error(f"Import failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as err:
-            print("import udbf failed")
-            print(err)
+            logging.error(f"import udbf failed:{err}")
             res = "error"
         return (res)  
 
@@ -472,10 +496,9 @@ class CloudRequest():
             if res.status_code == 200: 
                 self.import_session_res_csv = res.json()
             else:   
-                print(f"Creating import session failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                logging.err(f"Creating import session failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as e:
-            print("create_import_session failed")
-            print(e)
+            logging.error(f"create_import_session failed:{e}")
             res = "error"
         return (res)
 
@@ -493,17 +516,9 @@ class CloudRequest():
         url_list = self.url + '/history/data/import/' + self.session_ID
         headers = {'Content-Type':'text/csv','Authorization': 'Bearer ' + self.login_token["access_token"]}
         try:
-            print(url_list)
-            print(headers)
-            print(file)
             res = requests.post(url_list, headers = headers, data = file)
-            if res.status_code == 200: 
-                print("csv succesfully importet")
-            else:   
-                print(f"Import failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as e:
-            print("import csv failed ,code:{}".format(res.status_code))
-            print(e)
+            logging.error("import csv failed ,code:{}".format(res.status_code))
             res = "error"
         return (res)
 
@@ -539,14 +554,14 @@ class CloudRequest():
             csv_timestamp_local = csv_timestamp_utc.astimezone(tz.gettz('Europe / Paris'))
             csv_timestamp = dt.datetime.timestamp(csv_timestamp_local)
         except (FileNotFoundError) as e:
-            print('File path is wrong')
+            logging.error('File path of csv to import is wrong.')
         except Exception as e:
-            print('Could not read the csv - check the config:', e)
+            logging.error('Could not read the csv - check the config:', e)
             csv_timestamp=0
 
         timestamp_tmp = dt.datetime.fromtimestamp(csv_timestamp)
         timestamp_tmp.strftime('%Y-%m-%d %H:%M:%S')
-        print(f"first csv timestamp {csv_timestamp,timestamp_tmp.strftime('%d.%m.%Y %H:%M:%S')}")
+        logging.info(f"First csv timestamp {csv_timestamp,timestamp_tmp.strftime('%d.%m.%Y %H:%M:%S')}")
 
 
         #**************************************
@@ -555,12 +570,15 @@ class CloudRequest():
         if stream_name in self.streams:
             write_ID = stream_name[stream_name].id
             reprise = 1# in this case reprise =1
-            print("stream existing in GI.Cloud import will be continued - {}".format(write_ID))
+            logging.info("Stream already existing in GI.Cloud import will be continued - {}".format(write_ID))
         else:
             write_ID=str(uuid.uuid4())
             reprise = 0# in this case reprise =1
-            print("stream not existing in GI.Cloud import will be initialised - {}".format(write_ID))
-
+            logging.info("Stream not existing in GI.Cloud import will be initialised - {}".format(write_ID))
+            
+        if (utils.is_valid_uuid(write_ID) == False):
+            logging.error(f'uuid is wrong{write_ID}; break')
+            return
 
         #**************************************
         #            check last imported timestamps
@@ -586,16 +604,22 @@ class CloudRequest():
                 data_upload = f.read()
 
             response = self.__import_file_csv(data_upload)
-            time.sleep(5)
+            #time.sleep(5)
 
             if response.status_code == 200:
-                print("import successful")
-
-            self.delete_import() # Why? 
+                logging.info(f"import of {file_path} was successful")
+                return write_ID
+            else:   
+                logging.error(f"Import failed! \nResponse Code:{response.status_code} \nReason: {response.reason}")
+                
+            
+            # free up resources 
+            #self.delete_import()
         else:
-            print("Import failed : first imported csv value  is before the last database timestamp, but must begin after")
+            logging.error("Import failed : first imported csv value  is before the last database timestamp, but must begin after")
+        return None
 
-    def delete_import(self):
+    def delete_import_session(self):
         """
          method to delete session http API
 
@@ -608,12 +632,11 @@ class CloudRequest():
         try:
             res = requests.delete(url_list, headers = headers)
             if res.status_code == 200: 
-                print("import deleted")
+                logging.info("Import session is closed")
             else:   
-                print(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                logging.error(f"Failed closing import session! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as e:
-            print("delete failed")
-            print(e)
+            logging.error(f"delete failed: {e}")
             res="error"
         return (res)
 
@@ -629,7 +652,6 @@ class CloudRequest():
             list: current live value
         """
 
-        
         url_list = self.url + '/online/data'
         param = {"Variables":var_ids,"Function":"read"}
         headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
@@ -637,12 +659,12 @@ class CloudRequest():
             res = requests.post(url_list, headers = headers, json = param)
             if res.status_code == 200: 
                 current_live_value = res.json()
-                print(f"Current live Value: {current_live_value}")
+                logging.info(f"Current live Value: {current_live_value}")
                 return current_live_value
             else:
-                print(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}") 
+                logging.error(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}") 
         except Exception as e:
-            print(e)
+            logging.error(e)
         return None
 
     def write_value_on_channel(self, var_ids:list, write_list:list):
@@ -662,12 +684,12 @@ class CloudRequest():
             res = requests.post(url_list, headers = headers, json = param)
             if res.status_code == 200: 
                 write_value_res=res.json() 
-                print("Data Successfully written")
+                logging.info("Data Successfully written")
                 return write_value_res
             else:
-                print(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}") 
+                logging.error(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}") 
         except Exception as e:
-            print(e)
+            logging.error(e)
         return None
 
 class Helpers():
