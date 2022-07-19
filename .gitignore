@@ -131,5 +131,5 @@ dmypy.json
 modules_tester.ipynb
 
 test_venv
-
+.idea/
 /gimodules/resources/csv/test/*
