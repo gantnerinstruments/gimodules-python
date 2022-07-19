@@ -690,7 +690,7 @@ class Resolution(Enum):
     KHZ10 = 'KHZ10'
     NANOS = 'nanos'
 
-@dataclass(slots=True)
+@dataclass()
 class GIStream:
     '''Object for tracking available streams''' 
     name: str
@@ -700,7 +700,7 @@ class GIStream:
     last_ts: int
     index: int
 
-@dataclass(slots=True)
+@dataclass()
 class GIStreamVariable: 
     '''Object for tracking available variables'''
     id: str
