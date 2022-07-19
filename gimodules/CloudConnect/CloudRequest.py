@@ -1,328 +1,711 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Sep  1 10:34:01 2020
-@author: jouanb
-Module to send simplified html request to the Cloud
-
-change from 01.10.2021: new methods create import session
+@author: aljo
+Module to send simplified http request to the Cloud
 """
 
 import requests
-from requests.auth import HTTPBasicAuth
-import json
+import datetime as dt
 import numpy as np
 import pandas as pd
-from pandas import json_normalize
+import json 
+import re
+import uuid
+import time 
 
-#import pandas as pd
-#import os
+from dataclasses import dataclass
+from requests.auth import HTTPBasicAuth 
+from enum import Enum
+from dateutil import tz
+
 
 class CloudRequest():
-    def __init__(self):
-        self.empty='empty'
-        self.url=''
-        self.user=''
-        self.PW=''
-        self.ColumnSeparator= ";"
-        self.DecimalSeparator= "."
-        self.NameRowIndex= 0
-        self.UnitRowIndex= 1
-        self.ValuesStartRowIndex=2
-        self.ValuesStartColumnIndex=3
-        self.DateTimeFmtColumn1= "%d.%m.%Y"
-        self.DateTimeFmtColumn2= ""
-        self.DateTimeFmtColumn3=""
+    
+    def __init__ (self):
+        self.url = ""
+        self.user = ""
+        self.pw = ""
+        self.login_token = None
+        self.streams = None
+        self.stream_variabels = None
+        self.query = ""
+        self.request_measurement_res = None
 
-    def connect_gi_cloud(self):
-        login_form={'username':self.user,'password':self.PW,'grant_type':'password'}#We create the Form with entries and values
-        auth=HTTPBasicAuth('gibench', '')
+        # enums 
+        self.resolutions = Resolution 
+        self.units = None
+
+        # importer data
+        self.import_session_res_udbf = None
+        self.import_session_res_csv = None
+        self.session_ID = None
+
+        # csv config 
+        self.ColumnSeparator = ";"
+        self.DecimalSeparator = ","
+        self.NameRowIndex = 0
+        self.UnitRowIndex = 0
+        self.ValuesStartRowIndex = 1
+        self.ValuesStartColumnIndex = 1
+        ## Column 1: Date and Time -> specified in Gantner http docs
+        ## Comment one out: if python formatter differs from C++ formatter
+        ## e.g. "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
+        self.DateTimeFmtColumn1 = "%d.%m.%Y %H:%M:%S.%F"
+        self.DateTimeFmtColumn2 = ""
+        self.DateTimeFmtColumn3 = ""
+
+    def login(self, url:str, user:str, password:str):
+
+        self.url = url 
+        self.user = user 
+        self.pw = password
+
+        # prepare request
+        login_form = { 'username': self.user, 'password': self.pw, 'grant_type': 'password' }
+        auth = HTTPBasicAuth('gibench', '')
         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-        url_login = self.url+'/token'
+        login_url = self.url + '/token'
+
+        # send request
         try:
-            res = requests.post(url_login,data=login_form, headers=headers,auth=auth)
-            self.login_res=res.json()
-            self.auth_token=self.login_res['access_token']
+            res = requests.post(login_url, data = login_form, headers = headers, auth = auth)
+            if res.status_code == 200:
+                self.login_token = res.json()
+                print("Login successful")
+                self.get_all_stream_metadata()
+                self.print_streams()
+                self.get_all_var_metadata()
+            else: 
+                print(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as e:
-            print("connection failed")
-            return e
-        return (res)
-
-    def create_import_session_udbf(self,stream_ID,stream_Name):
-        '''method to import udbf file with http API'''
-        url_list=self.url+'/history/data/import'
-        param={"Type":"udbf","SourceID":stream_ID,"SourceName":stream_Name,"MeasID":"","SessionTimeoutSec":"300","AddTimeSeries":"false","SampleRate":"-1","AutoCreateMetaData":"true"}
-        header_list = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.auth_token}
-        try:
-            response = requests.post(url_list,headers=header_list,json=param)
-            self.import_session_res_udbf=response.json()
-        except:
-            print("create_import_session failed")
-            response="error"
-        return (response)
-
-
-    def create_import_session_csv(self,stream_ID,stream_Name):
-        '''method to import csv file with http API'''
-        url_list=self.url+'/history/data/import'
-        param={"Type":"csv","SourceID":stream_ID,"SourceName":stream_Name,"MeasID":"","SessionTimeoutSec":"300","AddTimeSeries":"false","SampleRate":"-1","AutoCreateMetaData":"true","CSVSettings": {"ColumnSeparator":self.ColumnSeparator,"DecimalSeparator": self.DecimalSeparator,"NameRowIndex": self.NameRowIndex,"UnitRowIndex": self.UnitRowIndex,"ValuesStartRowIndex":self.ValuesStartRowIndex,"ValuesStartColumnIndex":self.ValuesStartColumnIndex,"DateTimeFmtColumn1": self.DateTimeFmtColumn1,"DateTimeFmtColumn2": self.DateTimeFmtColumn2,"DateTimeFmtColumn3":self.DateTimeFmtColumn3}}
-        header_list = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.auth_token}
-        try:
-            response = requests.post(url_list,headers=header_list,json=param)
-            self.import_session_res_csv=response.json()
-        except:
-            print("create_import_session failed")
-            response="error"
-        return (response)
-
-    
-    def import_file_udbf(self,file):
-        '''method to import udb file with http API'''
-        self.session_ID=str(self.import_session_res_udbf['Data']['SessionID'])
-        url_list=self.url+'/history/data/import/'+self.session_ID
-        header_list = {'Content-Type':'application/octet-stream','Authorization': 'Bearer ' + self.auth_token}
-        try:
-            response_import=requests.post(url_list,headers=header_list,data=file)
-        except:
-            print("import  udbf failed")
-            response="error"
-        return (response_import)    
-
-    def import_file_csv(self, file):
-        '''method to import csv file with http API'''
-        self.session_ID=str(self.import_session_res_csv['Data']['SessionID'])
-        url_list=self.url+'/history/data/import/'+self.session_ID
-        header_list = {'Content-Type':'text/csv','Authorization': 'Bearer ' + self.auth_token}
-        try:
-            response_import=requests.post(url_list,headers=header_list,data=file)
-
-        except:
-            print("import csv failed ,code:{}".format(response_import.status_code))
-            response="error"
-        return (response_import)
-
-
-    def delete_import(self):
-        '''method to delete session http API'''
-        url_list=self.url+'/history/data/import/'+self.session_ID
-        header_list = {'Authorization': 'Bearer ' + self.auth_token}
-        try:
-            response_delete=requests.delete(url_list,headers=header_list)
-        except:
-            print("delete failed")
-            response="error"
-        return (response_delete)    
-
-    def list_gi_cloud_sources(self):
-        url_list=self.url+'/kafka/structure/sources'
-        header_list = {'Authorization': 'Bearer ' + self.auth_token}
-        try:
-            response = requests.get(url_list,headers=header_list)
-            self.sources_res=response.json()
-        except:
-            print("get list error")
-            response="error"
-        return (response)
-
-    def print_stream_ID(self):
-        self.stream_list=[]
-        self.stream_ID=[]
-        self.stream_last_ts=[]
-        for i in range(0,len(self.sources_res['Data'])):
-            try:
-                self.stream_list.append(self.sources_res['Data'][i]["Name"])
-                self.stream_ID.append(self.sources_res['Data'][i]["Id"])
-                self.stream_last_ts.append(self.sources_res['Data'][i]["LastTimeStamp"])
-                #print("Name: ",self.sources_res['Data'][i]["Name"],"Id:",self.sources_res['Data'][i]["Id"],\
-                #      "last ts",self.sources_res['Data'][i]["LastTimeStamp"])
-            except:
-                print("error")
-                
-    def variable_mapping(self,ID_stream):
-        query="{\n  variableMapping(sid: \""+ID_stream+"\") {\n    sid\n    columns {\n      name\n      variables {\n        id\n        dataType\n        name\n        unit\n      }\n    }\n  }\n}"
-        url_list=self.url+'/__api__/gql'
-        header_list = {'Authorization': 'Bearer ' + self.auth_token}
-        try:
-            request_map = requests.post(url_list,json={'query':query},headers=header_list)
-            self.request_map_res=request_map.json()
-        except:
-            print("error mapping")
-            request_map="error"
-        return(request_map)
-    
-    def get_var_mapping(self,request_map_res):
-        channel_name=[]
-        channel_unit=[]
-        channel_index=[]
-        channel_id=[]
-        for i in range(0,len(request_map_res['data']['variableMapping']['columns'])):
-            try:
-                channel_name.append(request_map_res['data']['variableMapping']['columns'][i]['variables'][0]['name'])
-                channel_unit.append(request_map_res['data']['variableMapping']['columns'][i]['variables'][0]['unit'])
-                channel_index.append(request_map_res['data']['variableMapping']['columns'][i]['name'])
-                channel_id.append(request_map_res['data']['variableMapping']['columns'][i]['variables'][0]['id'])
-            except:
-                print("error variable mapping")
-                channel_name.append("error")
-                channel_unit.append("error")
-                channel_index.append("error")
-                channel_index.append("error")
-        return(channel_index,channel_name,channel_unit,channel_id)
+            print(e)
         
-        
-    def get_measurement(self,SID,timestamp_start,timestamp_stop):
-        query_measurement="{\n  measurementPeriods(sid: \""+SID+"\",from: "+str(timestamp_start)+",\n \
-        to: "+str(timestamp_stop)+") \
-        {\n    minTs\n    maxTs\n    mid\n    sampleRate\n  }\n}"
-        url_list=self.url+'/__api__/gql'
-        header_list = {'Authorization': 'Bearer ' + self.auth_token}
-        try:
-            request_measurement = requests.post(url_list,json={'query':query_measurement},headers=header_list)
-            self.request_measurement_res=request_measurement.json()
-        except:
-            print("error get measurement")
+    def get_all_stream_metadata(self): 
+        """Loads the available meta information from all available streams. The data is stored in data classes and is accessible via the .streams attribute. 
+        """
+        # check that auth_token exist
+        if self.login_token is not None: 
+            # prepare request
+            url_list = self.url + '/kafka/structure/sources'
+            headers = {'Authorization': 'Bearer ' + self.login_token['access_token']}
+            # send request
+            try: 
+                res = requests.get(url_list, headers=headers)
+                if res.status_code == 200: 
+                    res = res.json()
+                    self.streams = {} # reset memory 
+                    for i in range(0, len(res['Data'])):
+                        name = res['Data'][i]["Name"]
+                        id = res['Data'][i]["Id"]
+                        sample_rate_hz = res['Data'][i]["SampleRateHz"]
+                        first_ts = res['Data'][i]["AbsoluteStart"]
+                        last_ts = res['Data'][i]["LastTimeStamp"]
+                        index = res['Data'][i]["Index"]
+                        # store data in dict with dataclass
+                        self.streams[name] = GIStream(name, id, sample_rate_hz, first_ts, last_ts, index)
+                else: 
+                    print(f"failed! \nResponse Code: {res.status_code} \nReason: {res.reason}")
+            except Exception as e:
+                print(e)
+        else: 
+            print("You have no valid access token! \nPlease login first.")
 
-    def get_measurement_limit(self,SID,limit):
-        query_measurement="{\n  measurementPeriods(sid: \""+SID+"\",from: 0,\n    to: 9999999999999, limit: "+str(limit)+", sort: DESC) \
-        {\n    minTs\n    maxTs\n    mid\n    sampleRate\n  }\n}"
-        url_list=self.url+'/__api__/gql'
-        header_list = {'Authorization': 'Bearer ' + self.auth_token}
+    def print_streams(self):
+        if self.streams is not None:
+            for s in self.streams: 
+                print(f"{'Streamname:':<20}{self.streams[s].name} \
+                        \n{'Streamid:':<20}{self.streams[s].id} \
+                        \n{'first ts:':<20}{self.streams[s].first_ts} {dt.datetime.utcfromtimestamp(float(self.streams[s].first_ts)/1000).strftime('%Y-%m-%d %H:%M:%S')} \
+                        \n{'last ts:':<20}{self.streams[s].last_ts} {dt.datetime.utcfromtimestamp(float(self.streams[s].last_ts)/1000).strftime('%Y-%m-%d %H:%M:%S')} \
+                        \n{'Samplerate:':<20}{self.streams[s].sample_rate_hz}\n")
+        else: 
+            print("You have no loaded Streams")
+
+    def get_all_var_metadata(self):
+        """Loads the available meta information from all available variable. The data is stored in data classes and is accessible via the .stream_variabels attribute. 
+        """
+
+        if self.streams is not None: 
+            url_list=self.url+'/__api__/gql'
+            headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
+            self.stream_variabels = {} # reset memory
+            unit_names = []
+            for s in self.streams:
+                query="{\n  variableMapping(sid: \""+ self.streams[s].id +"\") {\n    sid\n    columns {\n      name\n      variables {\n        id\n        dataType\n        name\n        unit\n      }\n    }\n  }\n}"
+                try:
+                    res = requests.post(url_list, json = {'query': query}, headers = headers)
+                    if res.status_code == 200: 
+                        res = res.json()
+                        for i in range(0, len(res['data']['variableMapping']['columns'])):
+                            sid = res['data']['variableMapping']['sid']     
+                            index = res['data']['variableMapping']['columns'][i]['name'] # Var index in GI System
+                            name = res['data']['variableMapping']['columns'][i]['variables'][0]['name'] # Var name defined by user
+                            data_type = res['data']['variableMapping']['columns'][i]['variables'][0]['dataType']
+                            id = res['data']['variableMapping']['columns'][i]['variables'][0]['id']
+                            unit = res['data']['variableMapping']['columns'][i]['variables'][0]['unit']
+
+                            # create Enum for filtering units
+                            if unit not in unit_names and unit != "": 
+                                unit_names.append(unit)
+                            # Create uniqe name for obj
+                            self.stream_variabels[f"{s}__{name}"] = GIStreamVariable(id, name, index, unit, data_type, sid)
+                    else: 
+                        print(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                except Exception as e:
+                    print(e)
+            # create Enum for available units
+            self.units = Enum('Units', list(unit_names))
+        else: 
+            print("You have no loaded Streams. \nPlease load first Streams.")
+
+    def variable_info(self):
+        '''use this endpoint to read information for all available online variables'''
+        url_list = self.url + '/online/structure/variables'
+        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
         try:
-            request_measurement = requests.post(url_list,json={'query':query_measurement},headers=header_list)
-            self.request_measurement_res=request_measurement.json()
-        except:
-            print("error get measurement")
+            res = requests.get(url_list, headers = headers)
+            if res.status_code == 200: 
+                res = res.json()
+                ## TODO continue here
+            else: 
+                print(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+        except Exception as e:
+            print(e)
             
+    def find_var(self, var_name: str): 
+        """Searches the existing variables. 
+
+        Args:
+            var_name (str): Var_name or Substring
+
+        Returns:
+            dataclass (obj): List of variables found
+        """
+
+        if type(var_name) == list: 
+            match = []  
+            for k in self.stream_variabels.keys():
+                for vr in var_name: #TODO Aviod Big O notation
+                    if vr in k: 
+                        match.append(k)
+        else: 
+            match = [x for x in self.stream_variabels.keys() if var_name in x]
+
+        if len(match) == 0 and match is not None: 
+            print("No var found.")
+        else:
+            result = {}  
+            for m in match:
+                result[m] = (self.stream_variabels[m])
+            return result
+        return None
+
+    def filter_var_attr(self, attr: str, value: str): 
+        """
+        Serach for stream_variables with a certain attribute
+
+        Args:
+            attr (str): e.g. unit
+            value (str): e.g. C°
+
+        Returns:
+            dataclass (obj): List of variables found
+        """
+
+        if self.stream_variabels is not None: 
+            match = [x for x in self.stream_variabels.values() if getattr(x, attr, "") == value]
+            return match
+        return None
+
+    def get_var_data(self, sid:str, index_list:list, start_date:str, end_date:str, resolution:str = 'nanos'):
+        """Returns a np.matrix of data and pandas df with timestamps and values directly from a data stream
+
+        Args:
+            sid (str): stream_id
+            index_list (list): channel_index e.g. ["a10", "a11"]
+            start_date (str): format: YYYY-MM-DD HH:MM:SS
+            end_date (str): format: YYYY-MM-DD HH:MM:SS
+            resolution (str, optional): 'MONTH','WEEK','DAY','HOUR','QUARTER_HOUR','MINUTE','SECOND','HZ10','HZ100','KHZ','KHZ10','nanos'
+                The available resolutions are accessible via the attribute ".resolutions". 
+                Do not forget at the end the .values  Defaults to 'nanos'.
+
+        Returns:
+            pandas.df: dataframe
+        """
+
+        tss = str(self.convert_datetime_to_unix(start_date))
+        tse = str(self.convert_datetime_to_unix(end_date))
+
+        selected_index_string="" 
+        if resolution=='nanos' and len(index_list) > 0: # nanos == raw data
+            for j in range(0,len(index_list)): # concat var_index for query
+                selected_index_string = selected_index_string + "\"" + index_list[j] + "\"" + " ,"
+            # build query 
             
-            
-    def print_measurement(self,request_measurement_res):
-        limit=len(request_measurement_res['data']['measurementPeriods'])
-        measurement_list=np.zeros((int(limit),2))
-        for l in range(0,int(limit)):
-    #print("start : ",request_measurement_res['data']['measurementPeriods'][l]['minTs'],"stop:",request_measurement_res['data']['measurementPeriods'][l]['maxTs'])
-            measurement_list[l,0]=request_measurement_res['data']['measurementPeriods'][l]['minTs']
-            measurement_list[l,1]=request_measurement_res['data']['measurementPeriods'][l]['maxTs']
-        return(measurement_list)
+            self.query ="{\n  Raw(columns: [\"ts\", \"nanos\"," + selected_index_string + "], \
+                sid: \"" + sid + "\",\
+                from: " + tss + ",\
+                to: " + tse + ") {\n    data\n  }\n}\n"             
         
-    def get_data(self,ID_device,index_list,start_import,end_import):
-        if len(index_list)>0:
-            selected_index_string=""
+        elif len(index_list) > 0:
             for j in range(0,len(index_list)):
-                selected_index_string=selected_index_string+"\""+index_list[j]+"\""+" ,"
+                selected_index_string = selected_index_string + index_list[j]+"{\n      avg\n}"
+
+            self.query ="{\n  analytics(from: "+tss+", \
+                to: " + tse + ", \
+                resolution: " + resolution + " \
+                sid: \"" + sid + "\") \
+                {\n    ts\n    " + selected_index_string + "\n}\n}\n"
         else:
             print("no variable selected")
-        query_data="{\n  Raw(columns: [\"ts\", \"nanos\","+selected_index_string+"], sid: \""+ID_device+"\", from: "+start_import+", to: "+end_import+") {\n    data\n  }\n}\n"            
-        #query_data="{\n  Raw(columns: [\"ts\", \"nanos\", \"a0\", \"a1\"], sid: \""+ID_device+"\", from: "+start_import+", to: "+end_import+") {\n    data\n  }\n}\n"
-        #query_data="{\n  Raw(columns: [\"ts\", \"nanos\", \"a1\", \"a0\",], sid: \""+ID_device+"\", from: "+start_import+", to: "+end_import+") {\n    data\n  }\n}\n"
-        
-        self.query_data_check=query_data
-        url_list=self.url+'/__api__/gql'
-        header_list = {'Authorization': 'Bearer ' + self.auth_token}
+
+        url_list = self.url+'/__api__/gql'
+        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
         try:
-            request_data= requests.post(url_list,json={'query':query_data},headers=header_list)
-            self.request_data_res=request_data.json()
-            #req_matrix_slb=self.request_data_res['data']['Raw']['data']
-        except:
-            print("error get data")
+            res = requests.post(url_list, json={'query':self.query}, headers = headers)
+            if res.status_code == 200 and not "errors" in res.text: 
+                requested_data = res.json()
 
-    def get_data_interactive(self,ID_device,index_list,start_import,end_import,resolution='nanos'):
-        if resolution=='nanos':
-            if len(index_list)>0:
-                selected_index_string=""
-                for j in range(0,len(index_list)):
-                    selected_index_string=selected_index_string+"\""+index_list[j]+"\""+" ,"
-            else:
-                print("no variable selected")
-            if resolution=='nanos':
-                query_data="{\n  Raw(columns: [\"ts\", \"nanos\","+selected_index_string+"], sid: \""+ID_device+"\", from: "+start_import+", to: "+end_import+") {\n    data\n  }\n}\n"             
-        else:            
-            if len(index_list)>0:
-                selected_index_string=""
-                for j in range(0,len(index_list)):
-                    selected_index_string=selected_index_string+index_list[j]+"{\n      avg\n}"
-                #print(selected_index_string)
-            else:
-                print("no variable selected")
-
-            #srcl# formatted to understand better. Why so many "\n"?
-            query_data="{\n  analytics(from: "+start_import+", \
-                to: "+end_import+", \
-                resolution: "+resolution+" \
-                sid: \""+ID_device+"\") \
-                {\n    ts\n    "+selected_index_string+"\n}\n}\n"
+                ### Filter Data out of request
+                if resolution=='nanos':
+                    data_matrix=requested_data['data']['Raw']['data']
+                    self.data=np.array(data_matrix)
+                else:
+                    self.data=np.zeros((len(requested_data['data']['analytics']['ts']),len(index_list)+1))
+                    self.data[:,0]=requested_data['data']['analytics']['ts']
+                    for k in range(0,len(index_list)):
+                        self.data[:,k+1]=requested_data['data']['analytics'][index_list[k]]['avg']
                 
-        self.query_data_check=query_data
+                ### create numpy matrix 
+                self.data=self.data.astype(float)
+                nonecheck=np.isnan(self.data[:,:])
+                none_index=np.where(nonecheck == True)
+
+                #none number can be at the begining or at the end.
+                if len (none_index[0])>0:
+                    first_none=none_index[0][0]
+                    last_none=none_index[0][-1]
+                    if last_none==len(self.data)-1:
+                        self.data=self.data[0:first_none-1,:]
+                    else:    
+                        self.data=self.data[last_none+1:-1,:]
+
+                ### create pandas df
+                self.df = pd.DataFrame(self.data, columns=self.__get_column_names(sid, index_list))
+                self.df['Time'] = pd.to_datetime(self.df['Time'], unit='ms')
+                return self.df 
+                
+            # Show error Message from Server
+            else: 
+                error = json.loads(res.text)
+                print(f"Fetching Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
+        except Exception as e:
+            print(e)
+
+    def __get_column_names(self, sid:str, index_list:list): 
+        """
+        private helper method to get the column names for df
+        Args:
+            sid (str): Stream Id
+            index_list (list): List of variable indices e.g. "a10"
+
+        Returns:
+            _type_: _description_
+        """
+        col_names = ["Time"]
+        res = self.filter_var_attr("sid", sid)
+        if res != None:
+            for i in index_list: 
+                for x in res:
+                    if x.index == i:
+                        col_names.append(x.name)
+            return col_names
+        return None 
+
+    @staticmethod
+    def convert_datetime_to_unix(datetime:str):
+        """staticmethod for converting timestamps to UTC
+
+        Args:
+            datetime (str): required date format '%Y-%m-%d %H:%M:%S'
+
+        Returns:
+            int: UNIX timestamp
+        """
+        try: 
+            date_time_obj = dt.datetime.strptime(datetime, '%Y-%m-%d %H:%M:%S')
+            timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz('UTC'))
+            timestamp_local = timestamp_utc.astimezone(tz.gettz('Europe / Paris'))
+            timestamp= int(dt.datetime.timestamp(timestamp_local)) * 1000 
+            return timestamp
+        except Exception as err:
+            print("Fehler beim konvertieren des Zeitstempels:", dt.datetime.now, err)
+
+    def get_measurement_limit(self, sid:str, limit:str): 
+        """
+             'get measurement between time start and time stop'
+
+        Args:
+            sid (str): Stream Id
+            limit (str): 
+        """
+        query_measurement="{\n  measurementPeriods(sid: \"" + sid + "\",from: 0,\n    to: 9999999999999, limit: "+str(limit)+", sort: DESC) \
+        {\n    minTs\n    maxTs\n    mid\n    sampleRate\n  }\n}"
         url_list=self.url+'/__api__/gql'
-        header_list = {'Authorization': 'Bearer ' + self.auth_token}
+        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
         try:
-            request_data= requests.post(url_list,json={'query':query_data},headers=header_list)
-            self.request_data_res=request_data.json()
-            #req_matrix_slb=self.request_data_res['data']['Raw']['data']
-        except:
-            print("error get data")
-                      
-            
-    def filter_data(self,formated_data):
-        data_matrix=formated_data['data']['Raw']['data']
-        if len(data_matrix)>0:
-            import_data=np.array(data_matrix)#We add the request return into a numpy matrix
-            import_data=import_data.astype(float)
-            nonecheck=np.isnan(import_data[:,:])
-            none_index=np.where(nonecheck == True)
-            import_data=import_data.astype(float)
-            nonecheck=np.isnan(import_data[:,:])
-            none_index=np.where(nonecheck == True)
-            none_index_unique=np.unique(none_index[0][:])#we delete multi elements
+            res = requests.post(url_list, json = {'query':query_measurement}, headers = headers)
+            if res.status_code == 200: 
+                self.request_measurement_res = res.json()
+            else: 
+                print(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+        except Exception as err:
+            print(err)
 
-            index_list_comple=np.linspace(0,len(import_data)-1,len(import_data))#we create a list with index same size than original data
-
-            check_is_in=np.isin(index_list_comple,none_index_unique)#we check if nan index are in the element list
-            excluded_nan=np.where(check_is_in == False)# we just take vales that are a number
-            if len (excluded_nan[0])>0:#none number can be at the begining or at the end.
-                first_valid_value=excluded_nan[0][0]
-                last_valid_value=excluded_nan[0][-1]
-                import_data=import_data[first_valid_value:last_valid_value,:]
-                status=1
-        else:
-            import_data=[]#no corresponding values in the array between start and stop
-            status=-1
-        return(import_data,status)
-
-    def filter_data_interactive(self,formated_data,selected_index,resolution='nanos'):
-        '''this method is called to filter and format the values returned by from request'''
-        if resolution=='nanos':
-            data_matrix=formated_data['data']['Raw']['data']
-            import_data=np.array(data_matrix)#We add the request return into a numpy matrix
-        else:
-            import_data=np.zeros((len(formated_data['data']['analytics']['ts']),len(selected_index)+1))
-            import_data[:,0]=formated_data['data']['analytics']['ts']
-            for k in range(0,len(selected_index)):
-                import_data[:,k+1]=formated_data['data']['analytics'][selected_index[k]]['avg']
+    def print_measurement(self): # TODO test function
+        limit = len(self.request_measurement_res['data']['measurementPeriods'])
+        measurement_list = np.zeros((int(limit),2))
+        for l in range(0,int(limit)):
+        #print("start : ",request_measurement_res['data']['measurementPeriods'][l]['minTs'],"stop:",request_measurement_res['data']['measurementPeriods'][l]['maxTs'])
+            measurement_list[l,0] = self.request_measurement_res['data']['measurementPeriods'][l]['minTs']
+            measurement_list[l,1] = self.request_measurement_res['data']['measurementPeriods'][l]['maxTs']
+        return(measurement_list)
         
-        import_data=import_data.astype(float)
-        nonecheck=np.isnan(import_data[:,:])
-        none_index=np.where(nonecheck == True)
-        if len (none_index[0])>0:#none number can be at the begining or at the end.
-            first_none=none_index[0][0]
-            last_none=none_index[0][-1]
-            if last_none==len(import_data)-1:
-                import_data=import_data[0:first_none-1,:]
-            else:    
-                import_data=import_data[last_none+1:-1,:]
-        return(import_data)
+    #### ubdf importer 
+    def create_import_session_udbf(self, sid:str, stream_name:str):
+        """ 
+        method to import udbf file with http API
 
-    def fetch_data_as_df(self, ID_stream, tenant, channels, begin, end):
-        
-        header_list = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.auth_token}
-        
-        convert= lambda dt: str(int(pd.to_datetime(dt).timestamp())*1000)
-        data_query="{\nanalytics(from:" + convert(begin) + ",\
-        to:" + convert(end) + ",resolution:QUARTER_HOUR,\
-        sid:\"" + ID_stream + "\"){\nts\n"
-        for i in channels:
-            data_query += ""+str(i)+"{\navg\n}\n"
-        data_query += "\n}\n}"
-        request_data_res = requests.post(tenant + '/__api__/gql',json={'query':data_query},headers=header_list).json()
-        df=json_normalize(request_data_res['data']['analytics']).apply(lambda x: x.explode())
-        df=df.set_index(pd.to_datetime(df.ts*1e6)).drop(columns='ts')
-        return df
+        Args:
+            sid (str): _description_
+            stream_name (str): _description_
+
+        Returns:
+            _type_: _description_
+        """
+
+        url_list = self.url + '/history/data/import'
+        param = {"Type":"udbf",
+                "SourceID": sid ,
+                "SourceName": stream_name ,
+                "MeasID":"",
+                "SessionTimeoutSec":"300",
+                "AddTimeSeries":"false",
+                "SampleRate":"-1",
+                "AutoCreateMetaData":"true"
+                }
+        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        try:
+            res = requests.post(url_list,headers=headers,json=param)
+            if res.status_code == 200: 
+                self.import_session_res_udbf=res.json()
+            else:   
+                print(f"Creating import session failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+        except Exception as err:
+            print("create_import_session failed")
+            print(err)
+            res="error"
+        return (res)
     
+    def import_file_udbf(self, file):
+        """method to import udb file with http API
+
+        Args:
+            file (udbf): GI specific file format 
+
+        Returns:
+            http obj:  Server response 
+        """
+
+        self.session_ID = str(self.import_session_res_udbf['Data']['SessionID'])
+        url_list = self.url +'/history/data/import/' + self.session_ID
+        header_list = {'Content-Type':'application/octet-stream','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        try:
+            res = requests.post(url_list,headers=header_list,data=file)
+            if res.status_code == 200: 
+                print("ubdf succesfully imported")
+            else:   
+                print(f"Import failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+        except Exception as err:
+            print("import udbf failed")
+            print(err)
+            res = "error"
+        return (res)  
+
+    #### csv importer 
+    def create_import_session_csv(self, stream_ID:str, stream_Name:str):
+        """method to import csv file with http API
+
+        Args:
+            stream_ID (str): stream id
+            stream_Name (str): buffername for new stream
+
+        Returns:
+            http obj:  Server response 
+        """
+
+        url_list = self.url+'/history/data/import'
+        param = { "Type":"csv",
+                "SourceID":stream_ID,
+                "SourceName":stream_Name,
+                "MeasID":"",
+                "SessionTimeoutSec":"60",
+                "AddTimeSeries":"false",
+                "SampleRate":"-1",
+                "AutoCreateMetaData":"true",
+                "CSVSettings": {"ColumnSeparator":self.ColumnSeparator,
+                                "DecimalSeparator": self.DecimalSeparator,
+                                "NameRowIndex": self.NameRowIndex,
+                                "UnitRowIndex": self.UnitRowIndex,
+                                "ValuesStartRowIndex":self.ValuesStartRowIndex,
+                                "ValuesStartColumnIndex":self.ValuesStartColumnIndex,
+                                "DateTimeFmtColumn1": self.DateTimeFmtColumn1
+                                ,"DateTimeFmtColumn2": self.DateTimeFmtColumn2,
+                                "DateTimeFmtColumn3":self.DateTimeFmtColumn3
+                                }
+                }
+
+        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        try:
+            print(param)
+            res = requests.post(url_list, headers = headers, json = param)
+            if res.status_code == 200: 
+                self.import_session_res_csv = res.json()
+            else:   
+                print(f"Creating import session failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+        except Exception as e:
+            print("create_import_session failed")
+            print(e)
+            res = "error"
+        return (res)
+
+    def __import_file_csv(self, file):
+        """method to import csv file with http API
+
+        Args:
+            file (csv): csv file for upload
+
+        Returns:
+            http obj:  Server response 
+        """
+
+        self.session_ID = str(self.import_session_res_csv['Data']['SessionID'])
+        url_list = self.url + '/history/data/import/' + self.session_ID
+        headers = {'Content-Type':'text/csv','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        try:
+            print(url_list)
+            print(headers)
+            print(file)
+            res = requests.post(url_list, headers = headers, data = file)
+            if res.status_code == 200: 
+                print("csv succesfully importet")
+            else:   
+                print(f"Import failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+        except Exception as e:
+            print("import csv failed ,code:{}".format(res.status_code))
+            print(e)
+            res = "error"
+        return (res)
+
+    def upload_csv_file(self, stream_name:str, file_path:str): 
+        """this method performs preparatory functions for csv import
+
+        Args:
+            stream_name (str): 
+            file_path (str):
+        """
+        #**************************************
+        #    read und check csv file
+        #**************************************
+        try:
+            
+            # Comment one out: if python formatter differs from C++ formatter
+            # e.g. "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
+            py_formatterClmn1 = self.DateTimeFmtColumn1
+            py_formatterClmn1 = "%d.%m.%Y %H:%M:%S.%f"
+
+            first_lines = pd.read_csv (file_path, encoding = 'utf-8', nrows = 10, sep = ';') #decofing AINSI files on windows or linux
+            read_date = first_lines.iat[self.ValuesStartRowIndex-1, 0] # we read the first measurement line, first coulmn
+            read_date = Helpers.remove_hex_from_string(read_date) # rm cloud exported hex containments
+
+            if (self.DateTimeFmtColumn2 == "" and self.DateTimeFmtColumn3 == ""):
+                date_time_obj = dt.datetime.strptime(read_date+";",py_formatterClmn1+";"+self.DateTimeFmtColumn2)
+            elif self.DateTimeFmtColumn2 != "":
+                read_time=first_lines.iat[self.ValuesStartRowIndex-1,1]     # we read the first measurement lin, second coulmn 
+                date_time_obj = dt.datetime.strptime(read_date+";"+read_time,py_formatterClmn1+";"+self.DateTimeFmtColumn2)
+            
+            #handle timestamp
+            csv_timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz('UTC'))
+            csv_timestamp_local = csv_timestamp_utc.astimezone(tz.gettz('Europe / Paris'))
+            csv_timestamp = dt.datetime.timestamp(csv_timestamp_local)
+        except (FileNotFoundError) as e:
+            print('File path is wrong')
+        except Exception as e:
+            print('Could not read the csv - check the config:', e)
+            csv_timestamp=0
+
+        timestamp_tmp = dt.datetime.fromtimestamp(csv_timestamp)
+        timestamp_tmp.strftime('%Y-%m-%d %H:%M:%S')
+        print(f"first csv timestamp {csv_timestamp,timestamp_tmp.strftime('%d.%m.%Y %H:%M:%S')}")
+
+
+        #**************************************
+        #    check if stream exists
+        #**************************************
+        if stream_name in self.streams:
+            write_ID = stream_name[stream_name].id
+            reprise = 1# in this case reprise =1
+            print("stream existing in GI.Cloud import will be continued - {}".format(write_ID))
+        else:
+            write_ID=str(uuid.uuid4())
+            reprise = 0# in this case reprise =1
+            print("stream not existing in GI.Cloud import will be initialised - {}".format(write_ID))
+
+
+        #**************************************
+        #            check last imported timestamps
+        #**************************************
+        if reprise == 1:
+            try:
+                last_timestamp = self.streams[stream_name].last_ts
+                timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp/1000)
+                print("last utc imported timestamp: {}".format((last_timestamp/1000),timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')))
+            except:
+                print("probably no stream existing")
+        else:
+            last_timestamp = 0
+            print("stream_empty timestamp:".format(last_timestamp))
+
+        #**************************************
+        #           Upload file
+        #**************************************
+
+        if csv_timestamp > last_timestamp / 1000:
+            self.create_import_session_csv(write_ID, stream_name)
+            with open(file_path, 'rb') as f:
+                data_upload = f.read()
+
+            response = self.__import_file_csv(data_upload)
+            time.sleep(5)
+
+            if response.status_code == 200:
+                print("import successful")
+
+            self.delete_import() # Why? 
+        else:
+            print("Import failed : first imported csv value  is before the last database timestamp, but must begin after")
+
+    def delete_import(self):
+        """
+         method to delete session http API
+
+        Returns:
+             http obj:  Server response 
+        """
+       
+        url_list = self.url +'/history/data/import/' + self.session_ID
+        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
+        try:
+            res = requests.delete(url_list, headers = headers)
+            if res.status_code == 200: 
+                print("import deleted")
+            else:   
+                print(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+        except Exception as e:
+            print("delete failed")
+            print(e)
+            res="error"
+        return (res)
+
+    ################# Read and Write Single Values out of live datastreams
+    ############### notice postprocessed data do not work with this functions 
+
+    def read_value(self, var_ids:list): 
+        """read online value, enter a list of variable IDs
+        Args:
+            var_ids (list): #For example var_ids=["47f32894-c6a0-11ea-81a1-02420a000368"]
+
+        Returns:
+            list: current live value
+        """
+
+        
+        url_list = self.url + '/online/data'
+        param = {"Variables":var_ids,"Function":"read"}
+        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        try:
+            res = requests.post(url_list, headers = headers, json = param)
+            if res.status_code == 200: 
+                current_live_value = res.json()
+                print(f"Current live Value: {current_live_value}")
+                return current_live_value
+            else:
+                print(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}") 
+        except Exception as e:
+            print(e)
+        return None
+
+    def write_value_on_channel(self, var_ids:list, write_list:list):
+        """ read online value, enter a list of variable IDs
+        Args:
+            var_ids (list): #For example var_ids=["47f32894-c6a0-11ea-81a1-02420a000368"]
+            write_list (list): #For example write_list=["0"]
+
+        Returns:
+            http obj:  Server response 
+        """
+
+        url_list = self.url + '/online/data'
+        param = {"Variables":var_ids, "Values": write_list ,"Function":"write"}
+        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        try:
+            res = requests.post(url_list, headers = headers, json = param)
+            if res.status_code == 200: 
+                write_value_res=res.json() 
+                print("Data Successfully written")
+                return write_value_res
+            else:
+                print(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}") 
+        except Exception as e:
+            print(e)
+        return None
+
+class Helpers():
+    @staticmethod 
+    def remove_hex_from_string(str):
+        """Remove hex value from input string"""
+        return re.sub(r'[^\x00-\x7f]',r'', str)
+
+class Resolution(Enum):
+    MONTH = 'MONTH'
+    WEEK = 'WEEK'
+    DAY = 'DAY'
+    HOUR = 'HOUR'
+    QUARTER_HOUR = 'QUARTER_HOUR'
+    MINUTE = 'MINUTE'
+    SECOND = 'SECOND'
+    HZ10 = 'HZ10'
+    HZ100 = 'HZ100'
+    KHZ = 'KHZ'
+    KHZ10 = 'KHZ10'
+    NANOS = 'nanos'
+
+@dataclass(slots=True)
+class GIStream:
+    '''Object for tracking available streams''' 
+    name: str
+    id: str
+    sample_rate_hz: str
+    first_ts: int
+    last_ts: int
+    index: int
+
+@dataclass(slots=True)
+class GIStreamVariable: 
+    '''Object for tracking available variables'''
+    id: str
+    name: str
+    index: str
+    unit: str
+    data_type: str
+    sid: str
