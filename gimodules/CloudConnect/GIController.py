@@ -270,7 +270,9 @@ class GIController():
             logging.error('check_csv_ts: File path is wrong')
         except Exception as e:
             logging.error('Could not read the csv - check the config:', e)
+            # As the timestamp needs to be (bigger) than stream timestamp this will result in nothing being imported
             csv_timestamp=0
+            return csv_timestamp
         
         
     
