@@ -31,6 +31,7 @@ class CloudRequest():
         self.user = ""
         self.pw = ""
         self.login_token = None
+        self.refresh_token = None
         self.streams = None
         self.stream_variabels = None
         self.query = ""
@@ -65,6 +66,7 @@ class CloudRequest():
             res = requests.post(login_url, data = login_form, headers = headers, auth = auth)
             if res.status_code == 200:
                 self.login_token = res.json()
+                self.refresh_token = self.login_token['refresh_token']
                 logging.info("Login successful")
                 self.get_all_stream_metadata()
                 self.print_streams()
@@ -73,6 +75,30 @@ class CloudRequest():
                 logging.error(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as e:
             logging.warning(e)
+    
+    def refresh_access_token(self): 
+        """
+        Refresh the access token with a refresh token. 
+        The refresh token is valid for 14 days. 
+        """
+        # prepare request
+        refresh_form = json.dumps({ 'ClientID': 'gibench', 'RefreshToken': self.refresh_token })
+        headers = {'Content-Type': 'application/json'}
+        refresh_url = self.url + '/rpc/AdminAPI.RefreshToken'
+        
+        # send request
+        try: 
+            res = requests.post(refresh_url, data = refresh_form, headers= headers)
+            if res.status_code == 200:
+                res = res.json()
+                res['access_token'] = res.pop('AccessToken')
+                self.login_token = res
+                logging.info("Access Token refreshed")
+            else: 
+                logging.error(f"Could not fetch access token with refresh token\nResponse Code:{res.status_code} \nReason: {res.reason}")
+        except Exception as e:
+            logging.warning(e)
+            
         
     def get_all_stream_metadata(self): 
         """Loads the available meta information from all available streams. 
@@ -98,6 +124,9 @@ class CloudRequest():
                         index = res['Data'][i]["Index"]
                         # store data in dict with dataclass
                         self.streams[name] = GIStream(name, id, sample_rate_hz, first_ts, last_ts, index)
+                elif res.status_code == 401 or res.status_code == 403: 
+                    self.refresh_access_token()
+                    self.get_all_stream_metadata()
                 else: 
                     logging.error(f"failed! \nResponse Code: {res.status_code} \nReason: {res.reason}")
             except Exception as e:
@@ -145,6 +174,9 @@ class CloudRequest():
                             # Create unique variable name /with stream
                             # TODO - if multiple variables with same name exists (in one stream) the name will be overwritten
                             self.stream_variabels[f"{s}__{name}"] = GIStreamVariable(id, name, index, unit, data_type, sid)
+                    elif res.status_code == 401 or res.status_code == 403: 
+                        self.refresh_access_token()
+                        self.get_all_var_metadata()
                     else: 
                         logging.error(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
                 except Exception as e:
@@ -311,7 +343,10 @@ class CloudRequest():
                 self.df = pd.DataFrame(self.data, columns=self.__get_column_names(sid, index_list))
                 self.df['Time'] = pd.to_datetime(self.df['Time'], unit='ms')
                 return self.df 
-                
+            elif res.status_code == 401 or res.status_code == 403:
+                logging.info("Token expired. Renewing...")
+                self.refresh_access_token()
+                return self.get_var_data(sid, index_list, start_date, end_date, resolution)
             # Show error Message from Server
             else: 
                 error = json.loads(res.text)
@@ -561,7 +596,7 @@ class CloudRequest():
         if (utils.is_valid_uuid(write_ID) == False):
             logging.error(f'uuid is wrong{write_ID}; break')
             return
-
+        
         #**************************************
         #            check last imported timestamps
         #**************************************
