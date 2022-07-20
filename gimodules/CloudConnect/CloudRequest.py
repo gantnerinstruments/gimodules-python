@@ -1,9 +1,10 @@
-# -*- coding: utf-8 -*-
+
 """
 @author: aljo, 
 Module to send simplified http request to the Cloud
 """
 
+import csv
 import requests
 import datetime as dt
 import numpy as np
@@ -43,20 +44,8 @@ class CloudRequest():
         self.import_session_res_udbf = None
         self.import_session_res_csv = None
         self.session_ID = None
+        self.csv_config = CsvConfig()
 
-        # csv config 
-        self.ColumnSeparator = ";"
-        self.DecimalSeparator = ","
-        self.NameRowIndex = 0
-        self.UnitRowIndex = 0
-        self.ValuesStartRowIndex = 1
-        self.ValuesStartColumnIndex = 1
-        ## Column 1: Date and Time -> specified in Gantner http docs
-        ## Comment one out: if python formatter differs from C++ formatter
-        ## e.g. "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
-        self.DateTimeFmtColumn1 = "%d.%m.%Y %H:%M:%S.%F"
-        self.DateTimeFmtColumn2 = ""
-        self.DateTimeFmtColumn3 = ""
 
     def login(self, url:str, user:str, password:str):
 
@@ -457,16 +446,8 @@ class CloudRequest():
             res = "error"
         return (res)  
 
-    @dataclass
-    class CsvConfig:
-        def __init__(self):
-            self.SourceID = ""
-            self.SourceName = ""
-            
-            
-        
     #### csv importer 
-    def create_import_session_csv(self, stream_ID:str, stream_Name:str):
+    def create_import_session_csv(self, stream_ID:str, stream_Name:str, csv_config: any, create_meta_data:bool = True, session_timeout:int = 60):
         """method to import csv file with http API
 
         Args:
@@ -482,20 +463,11 @@ class CloudRequest():
                 "SourceID":stream_ID,
                 "SourceName":stream_Name,
                 "MeasID":"",
-                "SessionTimeoutSec":"60",
+                "SessionTimeoutSec":str(session_timeout),
                 "AddTimeSeries":"false",
                 "SampleRate":"-1",
-                "AutoCreateMetaData":"true",
-                "CSVSettings": {"ColumnSeparator":self.ColumnSeparator,
-                                "DecimalSeparator": self.DecimalSeparator,
-                                "NameRowIndex": self.NameRowIndex,
-                                "UnitRowIndex": self.UnitRowIndex,
-                                "ValuesStartRowIndex":self.ValuesStartRowIndex,
-                                "ValuesStartColumnIndex":self.ValuesStartColumnIndex,
-                                "DateTimeFmtColumn1": self.DateTimeFmtColumn1
-                                ,"DateTimeFmtColumn2": self.DateTimeFmtColumn2,
-                                "DateTimeFmtColumn3":self.DateTimeFmtColumn3
-                                }
+                "AutoCreateMetaData": str(create_meta_data).lower(),
+                "CSVSettings": csv_config.get_config()
                 }
 
         headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
@@ -531,7 +503,7 @@ class CloudRequest():
             res = "error"
         return (res)
 
-    def upload_csv_file(self, stream_name:str, file_path:str): 
+    def upload_csv_file(self, stream_name:str, file_path:str, py_formatter: str = None, csv_config: any = None): 
         """this method performs preparatory functions for csv import
 
         Args:
@@ -542,12 +514,11 @@ class CloudRequest():
         #    read und check csv file
         #**************************************
         try:
-            
-            # Comment one out: if python formatter differs from C++ formatter
-            # e.g. "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
-            py_formatterClmn1 = self.DateTimeFmtColumn1
-            py_formatterClmn1 = "%d.%m.%Y %H:%M:%S.%f"
-
+            # py_formatter is delivered if python parses dates differently than c++ (backend parsing)
+            # e.g. py_formatterClmn1 = "%d.%m.%Y %H:%M:%S.%f" for python, while DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F" for API config
+            if py_formatter == None:
+                py_formatterClmn1 = self.DateTimeFmtColumn1
+    
             first_lines = pd.read_csv (file_path, encoding = 'utf-8', nrows = 10, sep = ';') #decofing AINSI files on windows or linux
             read_date = first_lines.iat[self.ValuesStartRowIndex-1, 0] # we read the first measurement line, first coulmn
             read_date = Helpers.remove_hex_from_string(read_date) # rm cloud exported hex containments
@@ -606,9 +577,10 @@ class CloudRequest():
         #**************************************
         #           Upload file
         #**************************************
-
+        if csv_config == None: 
+            csv_config = self.csv_config
         if csv_timestamp > last_timestamp / 1000:
-            self.create_import_session_csv(write_ID, stream_name)
+            self.create_import_session_csv(write_ID, stream_name, csv_config)
             with open(file_path, 'rb') as f:
                 data_upload = f.read()
 
@@ -740,3 +712,36 @@ class GIStreamVariable:
     unit: str
     data_type: str
     sid: str
+    
+@dataclass()
+class CsvConfig:
+    '''Object for tracking parameters for csv import'''
+    # csv config - initialised with default values
+    ColumnSeparator: str = ";"
+    DecimalSeparator: str= ","
+    NameRowIndex: int = 0
+    UnitRowIndex: int = 0
+    ValuesStartRowIndex: int = 1
+    ValuesStartColumnIndex: int = 1
+    ## Column 1: Date and Time -> specified in Gantner http docs
+    ## Comment one out: if python formatter differs from C++ formatter
+    ## e.g. "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
+    DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F"
+    DateTimeFmtColumn2: str = ""
+    DateTimeFmtColumn3: str = ""
+    
+    def get_config(self):
+        """returns config as dict"""
+        return {
+            "ColumnSeparator": self.ColumnSeparator,
+            "DecimalSeparator": self.DecimalSeparator,
+            "NameRowIndex": self.NameRowIndex,
+            "UnitRowIndex": self.UnitRowIndex,
+            "ValuesStartRowIndex": self.ValuesStartRowIndex,
+            "ValuesStartColumnIndex": self.ValuesStartColumnIndex,
+            "DateTimeFmtColumn1": self.DateTimeFmtColumn1,
+            "DateTimeFmtColumn2": self.DateTimeFmtColumn2,
+            "DateTimeFmtColumn3": self.DateTimeFmtColumn3
+        }
+        
+        
