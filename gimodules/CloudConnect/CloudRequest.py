@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-@author: aljo
+@author: aljo, 
 Module to send simplified http request to the Cloud
 """
 
@@ -21,7 +21,8 @@ from dateutil import tz
 
 from gimodules.CloudConnect import utils
 
-
+# Set output level to INFO because default is WARNNG
+logging.getLogger().setLevel(logging.INFO)
 class CloudRequest():
     
     def __init__ (self):
@@ -456,6 +457,14 @@ class CloudRequest():
             res = "error"
         return (res)  
 
+    @dataclass
+    class CsvConfig:
+        def __init__(self):
+            self.SourceID = ""
+            self.SourceName = ""
+            
+            
+        
     #### csv importer 
     def create_import_session_csv(self, stream_ID:str, stream_Name:str):
         """method to import csv file with http API
