@@ -43,6 +43,7 @@ class CloudRequest():
         # importer data
         self.import_session_res_udbf = None
         self.import_session_res_csv = None
+        self.import_session_csv_current = None
         self.session_ID = None
         self.csv_config = CsvConfig()
 
@@ -457,7 +458,7 @@ class CloudRequest():
         Returns:
             http obj:  Server response 
         """
-
+        
         url_list = self.url+'/history/data/import'
         param = { "Type":"csv",
                 "SourceID":stream_ID,
@@ -476,6 +477,7 @@ class CloudRequest():
             res = requests.post(url_list, headers = headers, json = param)
             if res.status_code == 200: 
                 self.import_session_res_csv = res.json()
+                self.import_session_csv_current = {'stream_id': stream_ID, 'ts': time.time(), 'timeout': session_timeout}
             else:   
                 logging.err(f"Creating import session failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
         except Exception as e:
@@ -580,7 +582,9 @@ class CloudRequest():
         if csv_config == None: 
             csv_config = self.csv_config
         if csv_timestamp > last_timestamp / 1000:
-            self.create_import_session_csv(write_ID, stream_name, csv_config)
+            # reuse import session if possible
+            if not self.__import_session_valid(write_ID):
+                self.create_import_session_csv(write_ID, stream_name, csv_config)
             with open(file_path, 'rb') as f:
                 data_upload = f.read()
 
@@ -599,7 +603,14 @@ class CloudRequest():
         else:
             logging.error("Import failed : first imported csv value  is before the last database timestamp, but must begin after")
         return None
-
+    
+    def __import_session_valid(self, stream_id):
+        if self.import_session_csv_current == None:
+            return False
+        elif self.import_session_csv_current['stream_id'] == stream_id and \
+            (self.import_session_csv_current['ts'] - time.time()) +5 < self.import_session_csv_current['timeout']:
+            return True
+        
     def delete_import_session(self):
         """
          method to delete session http API
