@@ -20,7 +20,7 @@ from requests.auth import HTTPBasicAuth
 from enum import Enum
 from dateutil import tz
 
-from gimodules.CloudConnect import utils
+from gimodules.cloudconnect import utils
 
 # Set output level to INFO because default is WARNNG
 logging.getLogger().setLevel(logging.INFO)

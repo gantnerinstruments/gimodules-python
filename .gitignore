@@ -135,4 +135,4 @@ test_venv
 /gimodules/resources/csv/test/*
 
 gi_cloud_tutorial.ipynb
-/gimodules/CloudConnect/GIController.py
+/gimodules/cloudconnect/GIController.py
