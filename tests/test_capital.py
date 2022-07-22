@@ -12,3 +12,6 @@ def test_capital_case():
 def test_raises_exception_on_non_string_arguments():
     with pytest.raises(TypeError):
         capital_case(9)
+        
+def test_check_action():
+    assert (2+2) == 4
