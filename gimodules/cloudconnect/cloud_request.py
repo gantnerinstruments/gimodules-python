@@ -25,6 +25,38 @@ from gimodules.cloudconnect import utils
 
 # Set output level to INFO because default is WARNNG
 logging.getLogger().setLevel(logging.INFO)
+
+@dataclass
+class CsvConfig:
+    '''Object for tracking parameters for csv import'''
+    # csv config - initialised with default values
+    ColumnSeparator: str = ";"
+    DecimalSeparator: str= ","
+    NameRowIndex: int = 0
+    UnitRowIndex: int = 0
+    ValuesStartRowIndex: int = 1
+    ValuesStartColumnIndex: int = 1
+    ## Column 1: Date and Time -> specified in Gantner http docs
+    ## Comment one out: if python formatter differs from C++ formatter
+    ## e.g. "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
+    DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F"
+    DateTimeFmtColumn2: str = ""
+    DateTimeFmtColumn3: str = ""
+    
+    def get_config(self):
+        """returns config as dict"""
+        return {
+            "ColumnSeparator": self.ColumnSeparator,
+            "DecimalSeparator": self.DecimalSeparator,
+            "NameRowIndex": self.NameRowIndex,
+            "UnitRowIndex": self.UnitRowIndex,
+            "ValuesStartRowIndex": self.ValuesStartRowIndex,
+            "ValuesStartColumnIndex": self.ValuesStartColumnIndex,
+            "DateTimeFmtColumn1": self.DateTimeFmtColumn1,
+            "DateTimeFmtColumn2": self.DateTimeFmtColumn2,
+            "DateTimeFmtColumn3": self.DateTimeFmtColumn3
+        }
+        
 class CloudRequest():
     
     def __init__ (self):
@@ -482,38 +514,6 @@ class CloudRequest():
             logging.error(f"import udbf failed:{err}")
             res = "error"
         return (res)  
-    
-    @dataclass
-    class CsvConfig:
-        '''Object for tracking parameters for csv import'''
-        # csv config - initialised with default values
-        ColumnSeparator: str = ";"
-        DecimalSeparator: str= ","
-        NameRowIndex: int = 0
-        UnitRowIndex: int = 0
-        ValuesStartRowIndex: int = 1
-        ValuesStartColumnIndex: int = 1
-        ## Column 1: Date and Time -> specified in Gantner http docs
-        ## Comment one out: if python formatter differs from C++ formatter
-        ## e.g. "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
-        DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F"
-        DateTimeFmtColumn2: str = ""
-        DateTimeFmtColumn3: str = ""
-        
-        def get_config(self):
-            """returns config as dict"""
-            return {
-                "ColumnSeparator": self.ColumnSeparator,
-                "DecimalSeparator": self.DecimalSeparator,
-                "NameRowIndex": self.NameRowIndex,
-                "UnitRowIndex": self.UnitRowIndex,
-                "ValuesStartRowIndex": self.ValuesStartRowIndex,
-                "ValuesStartColumnIndex": self.ValuesStartColumnIndex,
-                "DateTimeFmtColumn1": self.DateTimeFmtColumn1,
-                "DateTimeFmtColumn2": self.DateTimeFmtColumn2,
-                "DateTimeFmtColumn3": self.DateTimeFmtColumn3
-            }
-            
         
     #### csv importer 
     def create_import_session_csv(self, stream_ID:str, stream_Name:str, csv_config: CsvConfig, create_meta_data:bool = True, session_timeout:int = 60):
