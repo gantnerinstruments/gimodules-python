@@ -1,5 +1,5 @@
 import pytest
-
+"""Placeholder for testing"""
 
 def capital_case(x):
    if not isinstance(x, str):
