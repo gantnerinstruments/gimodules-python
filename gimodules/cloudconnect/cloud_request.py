@@ -16,7 +16,7 @@ import time
 import logging
 
 from dataclasses import dataclass
-from typing import Type
+from typing import Type, List, Dict, Tuple, Optional, Union, Any
 from requests.auth import HTTPBasicAuth 
 from enum import Enum
 from dateutil import tz
@@ -56,6 +56,16 @@ class CsvConfig:
             "DateTimeFmtColumn2": self.DateTimeFmtColumn2,
             "DateTimeFmtColumn3": self.DateTimeFmtColumn3
         }
+
+@dataclass()
+class GIStreamVariable: 
+    '''Object for tracking available variables'''
+    id: str
+    name: str
+    index: str
+    unit: str
+    data_type: str
+    sid: str
         
 class CloudRequest():
     
@@ -386,7 +396,74 @@ class CloudRequest():
                 logging.error(f"Fetching Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
         except Exception as e:
             logging.warning(e)
-
+            
+    def get_data_as_csv(self, variables: list[GIStreamVariable], resolution: str, start: str, end: str, decimal_sep: str='.'):
+        """Returns a csv file with the data of a given list of variables"""
+        # columns: field: "stream_id:sensorid" or sensorid
+        # headers: ["temperature", "C"]
+        start = str(self.convert_datetime_to_unix(start))
+        end = str(self.convert_datetime_to_unix(end))
+        
+        # TODO implement helper function to get stream name of id
+        # TODO add stream name to filename
+        substring = ''
+        filename = ''
+        for var in variables:
+            s = f"""{{field: "{var.sid}:{var.index}", headers: ["{var.name}", "{var.unit}"]}},"""
+            substring += s
+        """
+        for key,value in columns.items():
+            if value[1] not in filename:
+                filename += value[1]
+            #concated = '"' +  '","'.join(value) + '"'
+            # TODO header has names and types,
+            # give stream and GIStreamVariable
+            s = f"{{field: "{key}:{value}", headers: []}},"
+            substring += s
+        """
+        filename += '_' + start + '_' + end + '_' + resolution + '.csv'
+        self.query = f"""
+            {{
+                exportCSV(
+                    resolution: {resolution}
+                    from: {start},
+                    to: {end},
+                    timezone: "UTC"
+                    filename: "{filename}"
+                    columns: [
+                        {{
+                            field: "ts",
+                            headers: ["datetime"],
+                            dateFormat: "%Y-%m-%dT%H:%M:%S"
+                        }},
+                        {{
+                            field: "ts",
+                            headers: ["time","","","[s since 01.01.1970]"]
+                        }},
+                        {substring}
+                    ]
+                ) {{
+                    file
+                }}
+            }}
+        """
+        url_list = self.url+'/__api__/gql'
+        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
+        res = requests.post(url_list, json={'query':self.query}, headers = headers)
+        if res.status_code == 200 and not "errors" in res.text: 
+            content = res.content
+            # TODO check if chuncked fetching is possible
+            csv_file = open(filename, 'wb')
+            csv_file.write(content)
+            csv_file.close()
+            
+            # return as df
+            return content
+        else:
+            error = json.loads(res.text)
+            logging.error(f"Fetching csv Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
+            
+    
     def __get_column_names(self, sid:str, index_list:list): 
         """
         private helper method to get the column names for df
@@ -782,13 +859,4 @@ class GIStream:
     last_ts: int
     index: int
 
-@dataclass()
-class GIStreamVariable: 
-    '''Object for tracking available variables'''
-    id: str
-    name: str
-    index: str
-    unit: str
-    data_type: str
-    sid: str
-    
+
