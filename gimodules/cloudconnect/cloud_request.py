@@ -473,13 +473,13 @@ class CloudRequest():
 
         if res.status_code == 200 and not "errors" in res.text: 
             content = res.content
-            # TODO check if chuncked fetching is possible
             if write_file:
                 csv_file = open(filepath + filename, 'wb')
                 csv_file.write(content)
                 csv_file.close()
             
             # return as df
+            # TODO set columns to specific dtypes (more performance and pandas dynamic checking is buggy)
             return pd.read_csv(BytesIO(content), delimiter=delimiter)
         else:
             error = json.loads(res.text)
