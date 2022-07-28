@@ -5,6 +5,7 @@ Module to send simplified http request to the Cloud
 """
 
 import csv
+from io import BytesIO
 import requests
 import datetime as dt
 import numpy as np
@@ -396,39 +397,50 @@ class CloudRequest():
                 logging.error(f"Fetching Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
         except Exception as e:
             logging.warning(e)
-            
-    def get_data_as_csv(self, variables: list[GIStreamVariable], resolution: str, start: str, end: str, decimal_sep: str='.'):
+    
+    def _get_stream_name_for_sid_vid(self, sid:str, vid:str):
+        if self.stream_variabels != None:
+            stream = [k for k, v in self.stream_variabels.items() if (v.sid == sid and v.id == vid)]
+            if len(stream) == 1:
+                return stream[0].split('__')[0]
+        else: 
+            logging.info("no stream_variables available")
+            return None
+        
+    def _get_stream_name_for_sid(self, sid:str):
+        if self.stream_variabels != None:
+            stream = [stream_name for stream_name,gi_stream in self.streams.items() if gi_stream.id == sid]
+            if len(stream) == 1:
+                return stream[0]
+        else: 
+            logging.info("no stream_variables available")
+            return None
+        
+    def get_data_as_csv(self, variables: list[GIStreamVariable], resolution: str, start: str, end: str, decimal_sep: str='.', delimiter: str=';', timezone: str='UTC', aggregation: str='avg'):
         """Returns a csv file with the data of a given list of variables"""
         # columns: field: "stream_id:sensorid" or sensorid
         # headers: ["temperature", "C"]
         start = str(self.convert_datetime_to_unix(start))
         end = str(self.convert_datetime_to_unix(end))
         
-        # TODO implement helper function to get stream name of id
-        # TODO add stream name to filename
         substring = ''
         filename = ''
+        streams = []
         for var in variables:
-            s = f"""{{field: "{var.sid}:{var.index}", headers: ["{var.name}", "{var.unit}"]}},"""
+            stream = self._get_stream_name_for_sid_vid(var.sid, var.id)
+            streams.append(stream)
+            s = f"""{{field: "{var.sid}:{var.index}.{aggregation}", 
+            headers: ["{var.name}","{stream}","{aggregation}", "{var.unit}"]}},"""
             substring += s
-        """
-        for key,value in columns.items():
-            if value[1] not in filename:
-                filename += value[1]
-            #concated = '"' +  '","'.join(value) + '"'
-            # TODO header has names and types,
-            # give stream and GIStreamVariable
-            s = f"{{field: "{key}:{value}", headers: []}},"
-            substring += s
-        """
-        filename += '_' + start + '_' + end + '_' + resolution + '.csv'
+            
+        filename += '_'.join(streams) + start + '_' + end + '_' + resolution + '_' + aggregation + '.csv'
         self.query = f"""
             {{
                 exportCSV(
                     resolution: {resolution}
                     from: {start},
                     to: {end},
-                    timezone: "UTC"
+                    timezone: "{timezone}",
                     filename: "{filename}"
                     columns: [
                         {{
@@ -458,7 +470,7 @@ class CloudRequest():
             csv_file.close()
             
             # return as df
-            return content
+            return pd.read_csv(BytesIO(content), delimiter=delimiter)
         else:
             error = json.loads(res.text)
             logging.error(f"Fetching csv Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
