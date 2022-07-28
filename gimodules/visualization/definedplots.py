@@ -10,6 +10,8 @@ import pandas as pd # dataframe library
 import numpy as np
 import datetime as dt
 import os
+import math
+
 
 
 # From guid 22
@@ -71,21 +73,23 @@ def get_metainfo_string(**kwargs) -> str:
         result = result + '-' + value
     return result
 
+
+def _distance(a, b):
+    if (a == b):
+        return 0
+    elif (a < 0) and (b < 0) or (a > 0) and (b > 0):
+        if (a < b):
+            return (abs(abs(a) - abs(b)))
+        else:
+            return -(abs(abs(a) - abs(b)))
+    else:
+        return math.copysign((abs(a) + abs(b)),b)
+    
 # From guid 11a
-def define_heat_map(zval, yval, xval, df, agg, colours, title, vmin,unit, vmax=None, start_yymm=None, end_yymm=None, start_yymmdd=None, end_yymmdd=None, *argv, **kwargs):
+def define_heat_map(zval, yval, xval, df, agg, colours, title, start_yymm=None, end_yymm=None, start_yymmdd=None, end_yymmdd=None,vmin = 49.9, vmax = 50.1, unit=''):
     #limits
     hmin = 0
     hmax = 2359
-    #vmin = 0
-    #vmax = 50
-
-    #Meta information
-    for key, value in kwargs.items():
-        print(key + ' : ' + value)
-    
-    # args for costum description
-    for arg in argv:
-        print(arg)
     
 
     #if user date input: shorten data
@@ -103,7 +107,7 @@ def define_heat_map(zval, yval, xval, df, agg, colours, title, vmin,unit, vmax=N
             index      = [yval],
             columns    = [xval],
             values     = [zval], 
-            fill_value = 0,
+            #fill_value = 0,
             margins    = False,
             aggfunc    = [eval(agg)],
             dropna     = True  #keep null values
@@ -114,17 +118,20 @@ def define_heat_map(zval, yval, xval, df, agg, colours, title, vmin,unit, vmax=N
     pivot_hm = pivot_hm[pivot_hm.index <= hmax]
 
     #Meta information
-    #print('Tenant: ', url_widget.value)
-    #print('Source: ', wid_stream.value)
-    #print('Resolution: ', wid_reso.value)
+    """
+    print('Tenant: ', url_widget.value)
+    print('Source: ', wid_stream.value)
+    print('Resolution: ', wid_reso.value)
+    """
     if xval == 'YYMM':
         print('Data from: ', df['YYMM'].iloc[0], 'to: ', df['YYMM'].iloc[-1])
     elif xval == 'YYMMDD':
-        print('Data from: ', df['YYMMDD'].iloc[0], 'to: ', df['YYMMDD'].iloc[-1])
+        print()
+        #print('Data from: ', df['YYMMDD'].iloc[0], 'to: ', df['YYMMDD'].iloc[-1])
     else:
         print('Data from: ', df['DHOD'].iloc[0], 'to: ', df['DHOD'].iloc[-1])
     # create plot area
-    fig, ax = plt.subplots(figsize=(25,10))
+    fig, ax = plt.subplots(figsize=(25,12))
     im = ax.imshow(
         pivot_hm, 
         vmin = vmin, 
@@ -138,27 +145,36 @@ def define_heat_map(zval, yval, xval, df, agg, colours, title, vmin,unit, vmax=N
     # Y AXIS rows
     pr_hm =  pivot_hm.shape[0]
     plt.yticks(np.arange(0,pr_hm), rotation=0)    
+    
     ax.set_yticklabels(pivot_hm.index, fontsize = 18)
 
+    # if to much yvalues shorten them
     if (len(pivot_hm) > 200):
         temp = []
         for indx, item in enumerate(pivot_hm.index):
-            if indx % 30 == 0:
+            if indx % 60 == 0:
                 temp.append(item)
             else:
                 temp.append(None)
         ax.set_yticklabels(temp, fontsize=18)
     ax.set_ylabel(yval, fontsize=18)
     
-       
+    # add helper lines
+    
+    # differ sample rate
+    constant = 60
+    #for i in range(0,24):
+    #    ax.axhline(i*constant, color='gray', linewidth=1 )
+    diff = _distance(pivot_hm.shape[1], len(pivot_hm.columns.levels[2])) #DIRTY FIX for mod difference (set_xticks and set_xticklabels) remove this if breaks
+    
     # X AXIS columns
     pc_hm = pivot_hm.shape[1] #number of 
-    plt.xticks(np.arange(0,pc_hm), rotation=90)
+    plt.xticks(np.arange(0, pc_hm+diff), rotation=90) 
     ax.set_xlabel(xval, fontsize=18)
 
     # Set costum tick labels TODO - change to 0.05 steps
     ax.set_xticklabels(pivot_hm.columns.levels[2], fontsize=18) 
-    if len(pivot_hm.columns.levels[2]) > 50:    #create new ticks if more than 20 columns (x-axis)
+    if len(pivot_hm.columns.levels[2]) > 100:    #create new ticks if more than 20 columns (x-axis)
         nw_tick_list = []
         for i, item in enumerate(pivot_hm.columns.levels[2]):
             if xval == 'YYMM' or xval == 'DHOD':
@@ -166,6 +182,7 @@ def define_heat_map(zval, yval, xval, df, agg, colours, title, vmin,unit, vmax=N
                     nw_tick_list.append(item)
                 else:
                     nw_tick_list.append(None)
+                    
             else:
                 if i % 5 == 0:
                     nw_tick_list.append(item)
@@ -174,12 +191,13 @@ def define_heat_map(zval, yval, xval, df, agg, colours, title, vmin,unit, vmax=N
         ax.set_xticklabels(nw_tick_list, fontsize = 18 ) #pivot_o.index)
 
     #define z-axis (colorbar)
-    cbarlabel = zval 
+    cbarlabel = zval + ' ' + unit
     cbar = ax.figure.colorbar(im, ax=ax) # , **cbar_kw)
-    cbar.ax.set_ylabel(cbarlabel+' '+unit, rotation=90, va="bottom", fontsize=18, labelpad=30) 
+    cbar.ax.set_ylabel(cbarlabel, rotation=90, va="bottom", fontsize=18, labelpad=30)
+    #cbar.set_label(zval, labelpad=20) 
     
-    plt.figtext(.0, -.1, str(kwargs))
     #set labels
+    #ax.grid(linewidth=1)
     fig.tight_layout()
     plt.xlabel(xval)
     plt.ylabel(yval)
@@ -187,9 +205,6 @@ def define_heat_map(zval, yval, xval, df, agg, colours, title, vmin,unit, vmax=N
     plt.tight_layout()
     plt.show()
     #return pivot_hm #only if you are interested in pivot
-    metainfo = get_metainfo_string(**kwargs)
-    save_fig_in_subfolder(fig, 'heatmap_' + zval + '_' + metainfo (start_yymm + '-' + end_yymm) if start_yymm is not None else (('heatmap_' + zval + '_' + metainfo + (start_yymmdd + '-' + end_yymmdd) ) if start_yymmdd is not None else 'heatmap_' + zval + '_' + metainfo + get_now_time_as_string()))
-    
     
 # From Guid 1
 def double_y_axis_plot(df, xval, yvals, yval_labels, ylabel, y2label=None, y2vals=None, y2val_labels=None, *argv, **kwargs):
