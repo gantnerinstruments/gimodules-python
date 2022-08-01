@@ -86,7 +86,7 @@ def _distance(a, b):
         return math.copysign((abs(a) + abs(b)),b)
     
 # From guid 11a
-def define_heat_map(zval, yval, xval, df, agg, colours, title, start_yymm=None, end_yymm=None, start_yymmdd=None, end_yymmdd=None,vmin = 49.9, vmax = 50.1, unit=''):
+def define_heat_map(zval, yval, xval, df, agg, colours, title, start_yymm=None, end_yymm=None, start_yymmdd=None, end_yymmdd=None,vmin = 49.9, vmax = 50.1, unit='', figsize=(25,12)):
     #limits
     hmin = 0
     hmax = 2359
@@ -131,7 +131,7 @@ def define_heat_map(zval, yval, xval, df, agg, colours, title, start_yymm=None, 
     else:
         print('Data from: ', df['DHOD'].iloc[0], 'to: ', df['DHOD'].iloc[-1])
     # create plot area
-    fig, ax = plt.subplots(figsize=(25,12))
+    fig, ax = plt.subplots(figsize=figsize)
     im = ax.imshow(
         pivot_hm, 
         vmin = vmin, 
