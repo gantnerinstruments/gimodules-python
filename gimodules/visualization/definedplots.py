@@ -86,7 +86,7 @@ def _distance(a, b):
         return math.copysign((abs(a) + abs(b)),b)
     
 # From guid 11a
-def define_heat_map(zval, yval, xval, df, agg, colours, title, start_yymm=None, end_yymm=None, start_yymmdd=None, end_yymmdd=None,vmin = 49.9, vmax = 50.1, unit='', figsize=(25,12)):
+def define_heat_map(zval, yval, xval, df, agg, colours, title, start_yymm=None, end_yymm=None, start_yymmdd=None, end_yymmdd=None,vmin = 49.9, vmax = 50.1, unit='', figsize=(25,12), save=False):
     #limits
     hmin = 0
     hmax = 2359
@@ -204,6 +204,8 @@ def define_heat_map(zval, yval, xval, df, agg, colours, title, start_yymm=None, 
     plt.title(title, fontsize=20)
     plt.tight_layout()
     plt.show()
+    if save == True:
+        save_fig_in_subfolder(fig, f'heatmap_{zval}_{get_now_time_as_string()}', 'svg') #svg to avoid losing details on heatmaps
     #return pivot_hm #only if you are interested in pivot
     
 # From Guid 1
@@ -304,12 +306,15 @@ def get_list_as_string(li):
         res += '_' + str(item)
     return res
 
-def save_fig_in_subfolder(fig, fname):
+def save_fig_in_subfolder(fig, fname, format=''):
     # TODO change path for linux
     save_dir = 'export/figures/'
     mkdir_p(save_dir)
     
-    fig.savefig(save_dir + fname + '.png')
+    if format != '':
+        fig.savefig(save_dir + fname + f'.{format}', format=format)
+    else:
+        fig.savefig(save_dir + fname + '.png')
     
     
 def mkdir_p(mypath):

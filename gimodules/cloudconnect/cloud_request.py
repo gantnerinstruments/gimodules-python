@@ -424,8 +424,9 @@ class CloudRequest():
             logging.info("no stream_variables available")
             return None
         
-    def get_data_as_csv(self, variables: list[GIStreamVariable], resolution: str, start: str, end: str, filepath: str='', write_file: bool= True,decimal_sep: str='.', delimiter: str=';', timezone: str='UTC', aggregation: str='avg'):
-        """Returns a csv file with the data of a given list of variables"""
+    def get_data_as_csv(self, variables: list[GIStreamVariable], resolution: str, start: str, end: str, filepath: str='', streaming: bool = True, return_df: bool= True, write_file: bool= True,decimal_sep: str='.', delimiter: str=';', timezone: str='UTC', aggregation: str='avg'):
+        """Returns a csv file with the data of a given list of variables
+        """
         # columns: field: "stream_id:sensorid" or sensorid
         # headers: ["temperature", "C"]
         
@@ -469,18 +470,30 @@ class CloudRequest():
         """
         url_list = self.url+'/__api__/gql'
         headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
-        res = requests.post(url_list, json={'query':self.query}, headers = headers)
-
+        res = requests.post(url_list, json={'query':self.query}, headers = headers, stream=streaming)
+        import sys
+        logging.info(sys.getsizeof(res))
         if res.status_code == 200 and not "errors" in res.text: 
-            content = res.content
+            
+            
             if write_file:
-                csv_file = open(filepath + filename, 'wb')
-                csv_file.write(content)
-                csv_file.close()
+                with open(filepath + filename, 'wb') as csv_file:
+                    if stream == False:
+                        content = res.content
+                        csv_file.write(content)
+                        logging.info("test wrong case‚")
+                    else:
+                        for chunk in res.iter_content(chunk_size=1024):
+                            csv_file.write(chunk)
+                            csv_file.flush()
+                    csv_file.close()
             
             # return as df
             # TODO set columns to specific dtypes (more performance and pandas dynamic checking is buggy)
-            return pd.read_csv(BytesIO(content), delimiter=delimiter)
+            if return_df == True and stream==False:
+                return pd.read_csv(BytesIO(content), delimiter=delimiter)
+            elif return_df == True:
+                return pd.read_csv(csv_file, delimiter=delimiter)
         else:
             error = json.loads(res.text)
             logging.error(f"Fetching csv Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
