@@ -475,25 +475,26 @@ class CloudRequest():
         logging.info(sys.getsizeof(res))
         if res.status_code == 200 and not "errors" in res.text: 
             
-            
             if write_file:
-                with open(filepath + filename, 'wb') as csv_file:
-                    if stream == False:
-                        content = res.content
-                        csv_file.write(content)
-                        logging.info("test wrong case‚")
-                    else:
-                        for chunk in res.iter_content(chunk_size=1024):
-                            csv_file.write(chunk)
-                            csv_file.flush()
+                csv_file = open(filepath + filename, 'wb')
+                if stream == False:
+                    content = res.content
+                    csv_file.write(content)
                     csv_file.close()
+                else:
+                    for chunk in res.iter_content(chunk_size=1024):
+                        csv_file.write(chunk)
+                        csv_file.flush()
+                    if return_df == False:
+                        csv_file.close()
+                        
             
             # return as df
             # TODO set columns to specific dtypes (more performance and pandas dynamic checking is buggy)
             if return_df == True and stream==False:
                 return pd.read_csv(BytesIO(content), delimiter=delimiter)
             elif return_df == True:
-                return pd.read_csv(csv_file, delimiter=delimiter)
+                return pd.read_csv(filepath + filename, delimiter=delimiter)
         else:
             error = json.loads(res.text)
             logging.error(f"Fetching csv Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
