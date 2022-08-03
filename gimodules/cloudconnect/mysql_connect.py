@@ -33,7 +33,7 @@ class MySQLConnect():
          # call method to visualize failed connection
          print('Connection to ', db_host, ' could not be established.', e) 
    
-   def query_sql(self, query: str) -> pd.DataFrame:
+   def query_sql(self, query: str, set_columns: bool = True, *args, **kwargs) -> pd.DataFrame:
       
       trans = self.connection.begin()
       
@@ -42,14 +42,17 @@ class MySQLConnect():
          
          trans.commit()
          ref_data = res.fetchall()
-         return pd.DataFrame(ref_data)
+         df = pd.DataFrame(ref_data)
+         #if set_columns:
+            #df.columns = res.keys()
+         return df
          
       except exc.SQLAlchemyError:
          logging.info('SQL Query is wrong.')
 
 
 
-   def multiple_calls(self, query: str, N: int) -> pd.DataFrame:
+   def multiple_calls(self, query: str, N: int, *args, **kwargs) -> pd.DataFrame:
       """Multiple query call to avoid timeout error.
       Parse the start and end date, split it into multiple calls
       and concatenate results.

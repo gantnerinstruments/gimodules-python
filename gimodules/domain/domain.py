@@ -59,7 +59,7 @@ def ts_to_dateobj_with_timezone(ts, timezone):
     return date_obj
 
 
-def aggregate_df_as_resample(df, aggregation, math_operation):
+def aggregate_df_as_resample(df, aggregation, math_operation, date_column = '',):
     """
     Aggregates data together by a given aggregation type e.g. ('H'(Hour) 'D'(Day))
     and uses mathematical operation on them like sum(), mean(), max()
@@ -74,10 +74,12 @@ def aggregate_df_as_resample(df, aggregation, math_operation):
     Returns:
         [DataFrame]: [copied and changed dataframe]
     """
-
-    df['datetime'] = pd.to_datetime(df['ts']/1000, unit='s')
-
-    resample = df.set_index('datetime')
+    if date_column == '':
+        df['datetime'] = pd.to_datetime(df['ts']/1000, unit='s')
+        resample = df.set_index('datetime')
+    else:
+        resample = df.set_index(date_column)
+        
     if math_operation == 'sum':
         resample = resample.resample(aggregation).sum()
     elif math_operation == 'max':

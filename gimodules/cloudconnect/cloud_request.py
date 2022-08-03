@@ -471,8 +471,6 @@ class CloudRequest():
         url_list = self.url+'/__api__/gql'
         headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
         res = requests.post(url_list, json={'query':self.query}, headers = headers, stream=streaming)
-        import sys
-        logging.info(sys.getsizeof(res))
         if res.status_code == 200 and not "errors" in res.text: 
             
             if write_file:
