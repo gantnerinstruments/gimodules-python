@@ -489,8 +489,8 @@ class CloudRequest():
             
             # return as df
             # TODO set columns to specific dtypes (more performance and pandas dynamic checking is buggy)
-            if return_df == True and stream==False:
-                return pd.read_csv(BytesIO(content), delimiter=delimiter)
+            if return_df == True and stream==False or write_file==False:
+                return pd.read_csv(BytesIO(res.content), delimiter=delimiter)
             elif return_df == True:
                 return pd.read_csv(filepath + filename, delimiter=delimiter)
         else:
