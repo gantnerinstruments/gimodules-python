@@ -21,7 +21,6 @@ et-xmlfile==1.1.0
 executing==0.9.0
 fastjsonschema==2.16.1
 fonttools==4.34.4
-gimodules==0.0.3
 greenlet==1.1.2
 h11==0.12.0
 h2==4.1.0

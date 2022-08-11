@@ -17,3 +17,10 @@ $ `pipenv run test -v`
 or 
 
 $ `pytest`
+
+### requirements
+
+To create project all current requirements automatically:
+
+$ `pip3 freeze > requirements.txt`
+**_NOTE:_** Remove the old gimodules version from requirements.txt before pushing (dependency conflict).

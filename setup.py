@@ -7,10 +7,13 @@ here = os.path.abspath(os.path.dirname(__file__))
 with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
     long_description = "\n" + fh.read()
 
-VERSION = '0.0.5'
+VERSION = '0.0.6'
 DESCRIPTION = 'Python package to deliver a Gantner cloud interface'
 LONG_DESCRIPTION = ''
 
+with open('requirements.txt') as f:
+    required = f.read().splitlines()
+    
 # Setting up
 setup(
     name="gimodules",
@@ -21,12 +24,7 @@ setup(
     long_description_content_type="text/markdown",
     long_description=long_description,
     packages=find_packages(),
-    install_requires=['numpy >= 1.16.0',
-                      'pandas >= 0.22.0',
-                      'requests',
-                      'ipywidgets',
-                      'httpx',
-                      'httpx[http2]'],
+    install_requires=required,
     keywords=['python'],
     classifiers=[
         "Development Status :: 1 - Planning",
