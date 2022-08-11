@@ -862,6 +862,13 @@ class CloudRequest():
         except Exception as e:
             logging.error(e)
         return None
+    
+    def get_gistreamvariables(self, stream: str, variables: list) -> list:
+        """Give GIStreamVariable for according stream and variable name"""
+        gi_vars = []
+        for var in variables:
+            gi_vars.append(list(self.find_var(stream + '__' + var).values())[0])
+        return gi_vars
 
 class Helpers():
     @staticmethod 
