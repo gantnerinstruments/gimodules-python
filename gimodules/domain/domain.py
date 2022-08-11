@@ -107,3 +107,21 @@ def bin_df_column_values(df, column, ratio):
     df[column] = pd.to_numeric(round(df[column]/ratio + 0.5) * ratio)
     
     return df
+
+def drop_n_rows(df: pd.DataFrame, N: int) -> pd.DataFrame:
+    return df.iloc[N:, :]
+
+def append_hod_yymmdd(df: pd.DataFrame, ts: str, timezone: str = 'America/Phoenix') -> pd.DataFrame:
+    """Based on timestamp column and timezone, add corresponding yymmdd and hhmm (hour and minutes) to df as columns"""
+    yymmdd, yymm, hhmm = [],[],[]
+    
+    for indx, ts in enumerate(df[ts]):
+        date_obj = datetime.fromtimestamp(ts)
+        date_obj = date_obj.astimezone(pytz.timezone(timezone))
+        yymmdd.append(date_obj.strftime('%Y%m%d')[2:])
+        yymm.append(date_obj.strftime('%Y%m')[2:])
+        hhmm.append(int(date_obj.strftime('%H%M')))
+    df['YYMM'] = yymm
+    df['YYMMDD'] = yymmdd
+    df['HHMM'] = hhmm
+    
