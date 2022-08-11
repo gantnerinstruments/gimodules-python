@@ -124,4 +124,9 @@ def append_hod_yymmdd(df: pd.DataFrame, ts: str, timezone: str = 'America/Phoeni
     df['YYMM'] = yymm
     df['YYMMDD'] = yymmdd
     df['HHMM'] = hhmm
-    
+    return df
+
+def datetime_column_from_ts(df: pd.DataFrame, ts: str) -> pd.DataFrame:
+    """Change timestamp column into column filled with datetime objects"""
+    df['date'] = pd.to_datetime(df[ts], errors='coerce', unit='s')
+    return df
