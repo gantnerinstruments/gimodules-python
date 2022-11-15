@@ -289,6 +289,11 @@ services:
 #      context: ./jupyter-lab
 #    depends_on:
 #      - airflow-proxy
+    # !!
+    # https://github.com/puckel/docker-airflow/issues/224
+    # If you setup volumes in your docker-compose.yml and then run the image without creating the volume folders beforehand, 
+    # the folders will be created by root and once airflow runs as the airflow user, it won't have access to them.
+    # MEANING: either create the folders that are being used by airflow here or change the folder permissions (e.g. 777) inside the lab
     volumes:
       - airflow_dags:/opt/airflow/dags
       - airflow_scripts:/opt/airflow/scripts
