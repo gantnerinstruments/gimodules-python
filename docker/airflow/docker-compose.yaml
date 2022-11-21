@@ -56,7 +56,7 @@ x-airflow-common:
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
-    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
+    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- apache-airflow[papermill] papermill ipykernel}
   volumes:
     - airflow_dags:/opt/airflow/dags
     - airflow_scripts:/opt/airflow/scripts
@@ -237,7 +237,7 @@ services:
       _AIRFLOW_WWW_USER_CREATE: 'true'
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
-      _PIP_ADDITIONAL_REQUIREMENTS: ''
+      _PIP_ADDITIONAL_REQUIREMENTS: '' #req that are installed on container start
     user: "0:0"
     volumes:
       - .:/sources
@@ -289,6 +289,11 @@ services:
 #      context: ./jupyter-lab
 #    depends_on:
 #      - airflow-proxy
+    # !!
+    # https://github.com/puckel/docker-airflow/issues/224
+    # If you setup volumes in your docker-compose.yml and then run the image without creating the volume folders beforehand, 
+    # the folders will be created by root and once airflow runs as the airflow user, it won't have access to them.
+    # MEANING: either create the folders that are being used by airflow here or change the folder permissions (e.g. 777) inside the lab
     volumes:
       - airflow_dags:/opt/airflow/dags
       - airflow_scripts:/opt/airflow/scripts
