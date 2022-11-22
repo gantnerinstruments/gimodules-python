@@ -684,6 +684,7 @@ class CloudRequest():
             res = "error"
         return (res)
 
+    
     def upload_csv_file(self, stream_name:str, file_path:str, py_formatter: str = None, csv_config: any = None): 
         """this method performs preparatory functions for csv import
 
@@ -698,17 +699,17 @@ class CloudRequest():
             # py_formatter is delivered if python parses dates differently than c++ (backend parsing)
             # e.g. py_formatterClmn1 = "%d.%m.%Y %H:%M:%S.%f" for python, while DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F" for API config
             if py_formatter == None:
-                py_formatterClmn1 = self.DateTimeFmtColumn1
+                py_formatterClmn1 = self.csv_config.DateTimeFmtColumn1
     
             first_lines = pd.read_csv (file_path, encoding = 'utf-8', nrows = 10, sep = ';') #decofing AINSI files on windows or linux
-            read_date = first_lines.iat[self.ValuesStartRowIndex-1, 0] # we read the first measurement line, first coulmn
+            read_date = first_lines.iat[self.csv_config.ValuesStartRowIndex-1, 0] # we read the first measurement line, first coulmn
             read_date = Helpers.remove_hex_from_string(read_date) # rm cloud exported hex containments
 
-            if (self.DateTimeFmtColumn2 == "" and self.DateTimeFmtColumn3 == ""):
-                date_time_obj = dt.datetime.strptime(read_date+";",py_formatterClmn1+";"+self.DateTimeFmtColumn2)
-            elif self.DateTimeFmtColumn2 != "":
-                read_time=first_lines.iat[self.ValuesStartRowIndex-1,1]     # we read the first measurement lin, second coulmn 
-                date_time_obj = dt.datetime.strptime(read_date+";"+read_time,py_formatterClmn1+";"+self.DateTimeFmtColumn2)
+            if (self.csv_config.DateTimeFmtColumn2 == "" and self.csv_config.DateTimeFmtColumn3 == ""):
+                date_time_obj = dt.datetime.strptime(read_date+";",py_formatterClmn1+";"+self.csv_config.DateTimeFmtColumn2)
+            elif self.csv_config.DateTimeFmtColumn2 != "":
+                read_time=first_lines.iat[self.csv_config.ValuesStartRowIndex-1,1]     # we read the first measurement lin, second coulmn 
+                date_time_obj = dt.datetime.strptime(read_date+";"+read_time,py_formatterClmn1+";"+self.csv_config.DateTimeFmtColumn2)
             
             #handle timestamp
             csv_timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz('UTC'))
@@ -719,6 +720,7 @@ class CloudRequest():
         except Exception as e:
             logging.error('Could not read the csv - check the config:', e)
             csv_timestamp=0
+            return
 
         timestamp_tmp = dt.datetime.fromtimestamp(csv_timestamp)
         timestamp_tmp.strftime('%Y-%m-%d %H:%M:%S')
