@@ -11,7 +11,7 @@ VERSION = '0.0.92'
 DESCRIPTION = 'Python package to deliver a Gantner cloud interface'
 LONG_DESCRIPTION = ''
 
-with open('requirements.txt', encoding="UTF-16") as f:
+with open('requirements.txt') as f:
     required = f.read().splitlines()
     
 # Setting up
