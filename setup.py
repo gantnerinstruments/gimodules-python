@@ -11,8 +11,8 @@ VERSION = '0.0.8'
 DESCRIPTION = 'Python package to deliver a Gantner cloud interface'
 LONG_DESCRIPTION = ''
 
-#with open('requirements.txt') as f:
-#    required = f.read().splitlines()
+with open('requirements.txt') as f:
+    required = f.read().splitlines()
     
 # Setting up
 setup(
@@ -24,7 +24,7 @@ setup(
     long_description_content_type="text/markdown",
     long_description=long_description,
     packages=find_packages(),
-    #install_requires=required,
+    install_requires=required,
     keywords=['python'],
     classifiers=[
         "Development Status :: 1 - Planning",
