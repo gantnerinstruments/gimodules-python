@@ -289,7 +289,7 @@ class CloudRequest():
             return match
         return None
     
-    def _build_sensorid_querystring(self, indices:list, aggregations=None):
+    def _build_sensorid_querystring(self, indices:List, aggregations=None):
         #TODO - enable multiple aggregations
         agg = """
                 avg
@@ -303,7 +303,7 @@ class CloudRequest():
             """
         return s
 
-    def get_var_data(self, sid:str, index_list:list, start_date:str, end_date:str, resolution:str = 'nanos'):
+    def get_var_data(self, sid:str, index_list:List, start_date:str, end_date:str, resolution:str = 'nanos'):
         """Returns a np.matrix of data and pandas df with timestamps and values directly from a data stream
 
         Args:
@@ -424,7 +424,7 @@ class CloudRequest():
             logging.info("no stream_variables available")
             return None
         
-    def get_data_as_csv(self, variables: list[GIStreamVariable], resolution: str, start: str, end: str, filepath: str='', streaming: bool = True, return_df: bool= True, write_file: bool= True,decimal_sep: str='.', delimiter: str=';', timezone: str='UTC', aggregation: str='avg'):
+    def get_data_as_csv(self, variables: List[GIStreamVariable], resolution: str, start: str, end: str, filepath: str='', streaming: bool = True, return_df: bool= True, write_file: bool= True,decimal_sep: str='.', delimiter: str=';', timezone: str='UTC', aggregation: str='avg'):
         """Returns a csv file with the data of a given list of variables
         """
         # columns: field: "stream_id:sensorid" or sensorid
@@ -498,7 +498,7 @@ class CloudRequest():
             logging.error(f"Fetching csv Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
             
     
-    def __get_column_names(self, sid:str, index_list:list): 
+    def __get_column_names(self, sid:str, index_list:List): 
         """
         private helper method to get the column names for df
         Args:
@@ -816,7 +816,7 @@ class CloudRequest():
     ################# Read and Write Single Values out of live datastreams
     ############### notice postprocessed data do not work with this functions 
 
-    def read_value(self, var_ids:list): 
+    def read_value(self, var_ids:List): 
         """read online value, enter a list of variable IDs
         Args:
             var_ids (list): #For example var_ids=["47f32894-c6a0-11ea-81a1-02420a000368"]
@@ -840,7 +840,7 @@ class CloudRequest():
             logging.error(e)
         return None
 
-    def write_value_on_channel(self, var_ids:list, write_list:list):
+    def write_value_on_channel(self, var_ids:List, write_list:List):
         """ read online value, enter a list of variable IDs
         Args:
             var_ids (list): #For example var_ids=["47f32894-c6a0-11ea-81a1-02420a000368"]
@@ -865,7 +865,7 @@ class CloudRequest():
             logging.error(e)
         return None
     
-    def get_gistreamvariables(self, stream: str, variables: list) -> list:
+    def get_gistreamvariables(self, stream: str, variables: List) -> List:
         """Give GIStreamVariable for according stream and variable name"""
         gi_vars = []
         for var in variables:
