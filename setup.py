@@ -7,11 +7,11 @@ here = os.path.abspath(os.path.dirname(__file__))
 with codecs.open(os.path.join(here, "README.md"), encoding="utf-8") as fh:
     long_description = "\n" + fh.read()
 
-VERSION = '0.0.8'
+VERSION = '0.0.92'
 DESCRIPTION = 'Python package to deliver a Gantner cloud interface'
 LONG_DESCRIPTION = ''
 
-with open('requirements.txt') as f:
+with open('requirements.txt', encoding="UTF-16") as f:
     required = f.read().splitlines()
     
 # Setting up
