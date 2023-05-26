@@ -15,6 +15,7 @@ import re
 import uuid
 import time 
 import logging
+import pytz
 
 from dataclasses import dataclass
 from typing import Type, List, Dict, Tuple, Optional, Union, Any
@@ -80,6 +81,7 @@ class CloudRequest():
         self.stream_variabels = None
         self.query = ""
         self.request_measurement_res = None
+        self.timezone = 'Europe/Vienna'
 
         # enums 
         self.resolutions = Resolution 
@@ -303,17 +305,18 @@ class CloudRequest():
             """
         return s
 
-    def get_var_data(self, sid:str, index_list:List, start_date:str, end_date:str, resolution:str = 'nanos'):
+    def get_var_data(self, sid:str, index_list:List, start_date:str, end_date:str, resolution:str = 'nanos', custom_column_names:list = []):
         """Returns a np.matrix of data and pandas df with timestamps and values directly from a data stream
 
         Args:
             sid (str): stream_id
-            index_list (list): channel_index e.g. ["a10", "a11"]
+            index_list (list[str]): channel_index e.g. ["a10", "a11"]
             start_date (str): format: YYYY-MM-DD HH:MM:SS
             end_date (str): format: YYYY-MM-DD HH:MM:SS
             resolution (str, optional): 'MONTH','WEEK','DAY','HOUR','QUARTER_HOUR','MINUTE','SECOND','HZ10','HZ100','KHZ','KHZ10','nanos'
                 The available resolutions are accessible via the attribute ".resolutions". 
                 Do not forget at the end the .values  Defaults to 'nanos'.
+            custom_column_names (list[str]): 'use custom names for the df columns: ["Time", "your_col_name_1", "your_col_name_2", ...]'
 
         Returns:
             pandas.df: dataframe
@@ -384,8 +387,14 @@ class CloudRequest():
                         self.data=self.data[last_none+1:-1,:]
 
                 ### create pandas df
-                self.df = pd.DataFrame(self.data, columns=self.__get_column_names(sid, index_list))
+                if len(custom_column_names) == 0: # add option for custom names
+                    self.df = pd.DataFrame(self.data, columns=self.__get_column_names(sid, index_list))
+                else: 
+                    self.df = pd.DataFrame(self.data, columns=custom_column_names)
+
                 self.df['Time'] = pd.to_datetime(self.df['Time'], unit='ms')
+                self.__convert_df_time_from_utc_to_tz()
+                
                 return self.df 
             elif res.status_code == 401 or res.status_code == 403:
                 logging.info("Token expired. Renewing...")
@@ -517,10 +526,10 @@ class CloudRequest():
                         col_names.append(x.name)
             return col_names
         return None 
-
-    @staticmethod
-    def convert_datetime_to_unix(datetime:str):
-        """staticmethod for converting timestamps to UTC
+    
+    
+    def convert_datetime_to_unix(self, datetime:str):
+        """converting timestamps from the selected tz to UTC
 
         Args:
             datetime (str): required date format '%Y-%m-%d %H:%M:%S'
@@ -529,13 +538,45 @@ class CloudRequest():
             int: UNIX timestamp
         """
         try: 
-            date_time_obj = dt.datetime.strptime(datetime, '%Y-%m-%d %H:%M:%S')
-            timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz('UTC'))
-            timestamp_local = timestamp_utc.astimezone(tz.gettz('Europe / Paris'))
-            timestamp= int(dt.datetime.timestamp(timestamp_local)) * 1000 
-            return timestamp
+            current_tz = pytz.timezone(self.timezone)
+   
+            # Create a timezone-aware datetime object with DST information
+            datetime_obj = current_tz.localize(dt.datetime.strptime(datetime, '%Y-%m-%d %H:%M:%S'))
+
+            # Convert to UTC timezone
+            utc_obj = datetime_obj.astimezone(pytz.utc)
+
+            # Convert UTC datetime object to Unix timestamp
+            return int(utc_obj.timestamp()) * 1000
         except Exception as err:
             logging.error("Fehler beim konvertieren des Zeitstempels:", dt.datetime.now, err)
+
+
+    def set_timezone(self, timezone:str = 'Europe/Vienna'): 
+        if self.__validate_timezone(timezone): 
+            self.timezone = timezone
+            print("Now using timezone:", timezone)
+        else:
+            logging.warning('Timezone do not exist!')
+
+
+    def __validate_timezone(timezone):
+        try:
+            pytz.timezone(timezone)
+            return True
+        except pytz.UnknownTimeZoneError:
+            return False
+    
+    
+    def __convert_df_time_from_utc_to_tz(self): 
+        """ Converts the time stamps of the dataframe to the desired time zone. The default time zone is Vienna. The GI.Cloud always delivers the data in UTC.
+            Defaults to 'Europe/Vienna'.
+        """
+        try: 
+            self.df['Time'] = self.df['Time'].dt.tz_localize('UTC')
+            self.df['Time'] = self.df['Time'].dt.tz_convert(self.timezone)
+        except Exception as err:
+            logging.error("Error:", dt.datetime.now, err)
 
     def get_measurement_limit(self, sid:str, limit:str): 
         """
