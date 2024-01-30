@@ -9,17 +9,18 @@ import os
 
 
 class ConnectGIns():
-    def __init__(self):
+    def __init__(self, chemin = "libGInsUtility.so"):
 			# Load DLL into memory, take care to have the corresponding dll to the computer operating system
+        print("chemin", chemin)
         try:
             #chemin=os.path.abspath(".\\Giutility\\giutility_x64.dll")
-            chemin = "libGInsUtility.so" #should only work on linux machines located in cloud stack network
+            #chemin = "libGInsUtility.so" #should only work on linux machines located in cloud stack network
             #gins_lib = "/home/gins/data/libGInsUtility.so"
             self.GINSDll = ctypes.cdll.LoadLibrary(chemin)
             print("64 bit DLL imported")
             print(chemin)
-        except OSError:
-            print("can not imported libGInsUtility.so")
+        except OSError as e:
+            print(e)
 
 		#if linux uncomment before and use
 		#self.GINSDll = ctypes.cdll.LoadLibrary("PyQStationConnect_2_0\\libGInsData.so")
@@ -179,10 +180,13 @@ class ConnectGIns():
         i=0
         self.GINSDll._CD_eGateHighSpeedPort_GetDeviceInfo(self.HCONNECTION.value,self.ChannelCount,0,self.info,None)
         ChannelNb=self.info.value
+        channels = {}
         while i<ChannelNb:
             self.GINSDll._CD_eGateHighSpeedPort_GetDeviceInfo(self.HCONNECTION.value,self.Channel_InfoName,i,None,self.char)
             print("Controller index:",i," channel name:", self.char.value.decode('UTF-8'))
+            channels[i] = self.char.value.decode('UTF-8')
             i+=1
+        return channels
     def read_channels_unit(self):
         """Read the channel name and corresponding index"""
         i=0
