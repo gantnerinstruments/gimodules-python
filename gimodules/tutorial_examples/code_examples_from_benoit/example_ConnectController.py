@@ -1,13 +1,3 @@
-# -*- coding: utf-8 -*-
-
-"""
-Created on Tue Jun  2 12:39:28 2020
-@author: BJ
-Gantner Instruments to Python tutorials
-Connect to GINS Controller
-"""
-
-import initExample
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore
@@ -51,7 +41,8 @@ def init_curve(graph, init_list):
     return curve
 
 # Visualisation of the measurements
-signal_plot = np.zeros((window_size, len(channel_nb)))  # Output matrix initialization
+# Output matrix initialization
+signal_plot = np.zeros((window_size, len(channel_nb)))  
 
 win = pg.GraphicsWindow(title="Basic plotting example")
 win.resize(1000, 600)

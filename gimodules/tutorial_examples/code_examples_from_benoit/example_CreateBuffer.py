@@ -1,14 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Apr  8 16:47:07 2020
-@author: BJ
-Gantner Instruments to Python tutorials
-Create a new Stream in GI.data
-"""
-
-
-import initExample ## Add path to library (just for examples; you do not need this)
-
 import ginsapy.giutility.connect.PyQStationConnectWin as Qstation
 import ginsapy.giutility.buffer.GInsDataCreateBuffer as NewStream#This is an extra library with buffer methods
 

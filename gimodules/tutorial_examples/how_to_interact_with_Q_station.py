@@ -264,7 +264,8 @@ app.layout = html.Div([
 ])
 
 if __name__ == '__main__':
-    app.run_server(host="0.0.0.0", port=8050) # You need to use the host 0.0.0.0 and the port 8050
+    # You need to use the host 0.0.0.0 and the port 8050
+    app.run_server(host="0.0.0.0", port=8050) 
 """
 
 
@@ -308,15 +309,18 @@ body = dbc.Row([
 
 ########################## Application Setup
 
-
+# Gothic A1 font and Bootstrap theme
 external_stylesheets = [
     'https://fonts.googleapis.com/css2?family=Gothic+A1&display=swap',
      dbc.themes.BOOTSTRAP
 ]
 
+# init and config web server
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 app.config.suppress_callback_exceptions=True
 app.css.config.serve_locally = True
+
+# App layout
 app.layout = dbc.Container([
    header,
    body,
@@ -325,7 +329,7 @@ app.layout = dbc.Container([
 
 
 
-########################## Callbacks
+########################## Tab navigation callback 
 @app.callback(Output('tabs-content-inline', 'children'),
               Input('tabs-styled-with-inline', 'value'))
 def render_content(tab):
@@ -380,7 +384,6 @@ gi_streams_and_variables = dcc.Store(id="gi-data", data=None)
 gi_cloud_token = dcc.Store(id='gi-token', data=None)
 
 
-
 cloud_login_component = dbc.Row([
     html.H3("Login to your cloud account"),
     dbc.Label("Cloud URL", width=12),
@@ -400,6 +403,7 @@ cloud_login_component = dbc.Row([
     ] , width=12),
     html.Div(id="alert-container", children=[])            
 ], className="mb-4")
+
 
 # component callback 
 @app.callback(
@@ -430,6 +434,7 @@ def cloud_login_component_callback(n_clicks, url, user, pw):
         return token, stream_and_variables, list(stream_and_variables.keys()),  list(stream_and_variables.keys())[0], dbc.Alert(f"Login to {url} successful", color="success") 
     # default return
     return None, None, [], "no datastream available", []
+
 
 # Update Dropdown after selecting a stream
 @app.callback(Output('cloud-datastream-variables', 'options'),
@@ -523,14 +528,11 @@ page_connect_dash_to_cloud = dbc.Row([
         # components
         cloud_login_component, 
         cloud_stream_data_component,
-
         dcc.Loading(
             id="loading-1",
             type="default",
             children=html.Div(id="loading-output-1", children=[html.Div(id="cloud-chart-container", children=[])])
         ),
-
-        
         html.Div([
             dcc.Markdown(children=f"""```python{code_snippet_graphQL}```""", ),
         ], className="border border-primary rounded p-3") 
@@ -651,9 +653,6 @@ def update_chart_callback(n_intervals, ip, dll_path):
     return channel_data
 
 
-
-
-
 ########################## page_advanced_code_preview
 
 page_advanced_code_preview = dbc.Row([
@@ -671,14 +670,19 @@ page_advanced_code_preview = dbc.Row([
 ])
 
 
-
 ########################## page_code_preview
 page_code_preview = dbc.Col([
         html.H3("Python Code Snippet Example"),
-        html.P("Select a script to display its content.", className="m-0 p-0"),
-        html.P("The content of the script will be displayed in a code block.", className="m-0 p-0"),
-        html.P("You can copy the code and paste it in your own script.", className="m-0 p-0"),
-        html.P("You can also run the script by clicking on the 'Run script' button.", className="m-0 p-0 mb-3"),
+
+        html.P("With the following code snippets allow you to get started with your own python scripts."),
+        html.Ol([
+            html.Li("How to connect to a Q.station"),
+            html.Li("How to connect to create a buffer"),
+            html.Li("How to read a buffer"),
+            html.Li("How to read DAT files"),
+            html.Li("How to write a value to a Q.station"),
+        ]),
+        dbc.Alert("Note: The following code snippets are for local usage only. You can not use this examples inside the GI.cloud.", color="info"),
         dcc.Dropdown(
             id='script-dropdown',
             options=[
@@ -696,7 +700,7 @@ page_code_preview = dbc.Col([
 # component callback
 @app.callback(
     Output('output-markdown', 'children'),
-    [Input('script-dropdown', 'value')]
+    Input('script-dropdown', 'value')
 )
 def update_output(selected_script):
     if selected_script is None:
@@ -714,6 +718,10 @@ def update_output(selected_script):
 
 
 ###########################Server 
-def run():
-    app.run_server(debug=True)
-    #app.run_server(host="0.0.0.0", port=8050) # You need to use the host 0.0.0.0 and the port 8050
+def run(mode="local"):
+    if mode == "local": 
+        app.run_server(debug=True)
+    
+    if mode == "cloud": 
+        # You need to use the host 0.0.0.0 and the port 8050
+        app.run_server(host="0.0.0.0", port=8050) 

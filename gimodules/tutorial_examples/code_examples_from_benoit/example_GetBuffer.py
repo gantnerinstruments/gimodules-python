@@ -1,11 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Jun  2 12:39:28 2020
-@author: BJ
-Gantner Instruments API Python interface - Examples
-Get GI.data stream
-"""
-
 import initExample ## Add path to library (just for examples; you do not need this)
 
 import ginsapy.giutility.connect.PyQStationConnectWin as Qstation #module with communication functions to Gantner Q.Station under windows environment

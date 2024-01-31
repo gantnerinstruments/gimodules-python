@@ -1,11 +1,3 @@
-# -*- coding: utf-8 -*-
-
-"""
-Created on July 37 14:00:19 2018
-@author: BJ
-Gantner Instruments to Python tutorials
-Read Gantner UDBF File
-"""
 #module with communication functions to Gantner Q.Station under windows
 import initExample ## Add path to library (just for examples; you do not need this)
 

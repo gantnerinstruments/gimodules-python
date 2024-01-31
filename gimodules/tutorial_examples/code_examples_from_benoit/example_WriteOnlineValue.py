@@ -1,13 +1,4 @@
-# -*- coding: utf-8 -*-
-
-"""
-Created on Tue Jun  2 12:39:28 2020
-@author: BJ
-Gantner Instruments API Python interface - Examples
-Write value to GINS Controller setpoint
-"""
-
-#module with communication functions to Gantner Q.Station under windows
+# module with communication functions to Gantner Q.Station under windows
 import initExample ## Add path to library (just for examples; you do not need this)
 import time
 import numpy as np #module for scientific operations
