@@ -34,14 +34,18 @@ filtered_scripts = [script for script in os.listdir(script_folder) if script.sta
 ########################## Helper Functions
 ## cloud functions
 def get_stream_metadata(url, user, pw,): 
-    cloud = CloudRequest()
-    cloud.login(url, user, pw,)
-        
-    streams_and_variables = {}
-    for s in cloud.streams: 
-        var_names = cloud.find_var(cloud.streams[s].name).keys()
-        streams_and_variables[cloud.streams[s].name] = [v.split('__')[1] for v in var_names]
-    return streams_and_variables, cloud.login_token
+    try:
+        cloud = CloudRequest()
+        cloud.login(url, user, pw,)
+            
+        streams_and_variables = {}
+        for s in cloud.streams: 
+            var_names = cloud.find_var(cloud.streams[s].name).keys()
+            streams_and_variables[cloud.streams[s].name] = [v.split('__')[1] for v in var_names]
+        return streams_and_variables, cloud.login_token
+    except Exception as e:
+        print(e)
+        return None, None
 
 
 ## local functions
@@ -266,8 +270,7 @@ header = dbc.Row([
 
 body = dbc.Row([
     dbc.Col([
-        #dcc.Tabs(id="tabs-styled-with-inline", value='page_dash_cloud_example', vertical=True, children=[
-        dcc.Tabs(id="tabs-styled-with-inline", value='page_connect_local_to_q_station', vertical=True, children=[
+        dcc.Tabs(id="tabs-styled-with-inline", value='page_dash_cloud_example', vertical=True, children=[
             dcc.Tab(label='How to use Cloud Analytics', value='page_dash_cloud_example', style={"border-top" : "0px solid"}),
             dcc.Tab(label='Connect to Q.station via Cloud', value='page_connect_cloud_to_q_station'),
             dcc.Tab(label='Connect to Q.station via LAN', value='page_connect_local_to_q_station'),
@@ -382,8 +385,9 @@ cloud_login_component = dbc.Row([
             dcc.Input(id="cloud-password", type="password"),
         ], width=12),
     dbc.Col([
-        dbc.Button('Login', id='cloud-login-btn', n_clicks=0, style={"background-color" : "#0053a5"}, className="mt-3"),
-    ] , width=12),            
+        dbc.Button('Login', id='cloud-login-btn', n_clicks=0, style={"background-color" : "#0053a5"}, className="mt-3 mb-3"),
+    ] , width=12),
+    html.Div(id="alert-container", children=[])            
 ], className="mb-4")
 
 # component callback 
@@ -391,17 +395,30 @@ cloud_login_component = dbc.Row([
         Output('gi-token', 'data'),
         Output('gi-data', 'data'),
         Output('cloud-datastream', 'options'),
-        Output('cloud-datastream', 'value'),  
+        Output('cloud-datastream', 'value'), 
+        Output('alert-container', 'children'), 
         Input('cloud-login-btn', 'n_clicks'),
         State('cloud-url', 'value'),
         State('cloud-username', 'value'),
         State('cloud-password', 'value')) 
 def cloud_login_component_callback(n_clicks, url, user, pw):
     if n_clicks > 0:
+        if url is None or url == "":
+            return None, None, [], "no datastream available", dbc.Alert("No cloud url provided. Please provide a cloud url.", color="warning")
+
+        if user is None or user == "":
+            return None, None, [], "no datastream available", dbc.Alert("No username provided. Please provide a username.", color="warning")
+        
+        if pw is None or pw == "":
+            return None, None, [], "no datastream available", dbc.Alert("No password provided. Please provide a password.", color="warning")
+
         stream_and_variables, token = get_stream_metadata(url, user, pw)
-        return token, stream_and_variables, list(stream_and_variables.keys()),  list(stream_and_variables.keys())[0]
+        if stream_and_variables is None or token is None:
+            return None, None, [], "no datastream available", dbc.Alert("Login to cloud failed. Please check your credentials.", color="danger")
+
+        return token, stream_and_variables, list(stream_and_variables.keys()),  list(stream_and_variables.keys())[0], dbc.Alert(f"Login to {url} successful", color="success") 
     # default return
-    return None, None, [], "no datastream available"
+    return None, None, [], "no datastream available", []
 
 # Update Dropdown after selecting a stream
 @app.callback(Output('cloud-datastream-variables', 'options'),
@@ -495,7 +512,14 @@ page_connect_dash_to_cloud = dbc.Row([
         # components
         cloud_login_component, 
         cloud_stream_data_component,
-        html.Div(id="cloud-chart-container", children=[]),
+
+        dcc.Loading(
+            id="loading-1",
+            type="default",
+            children=html.Div(id="loading-output-1", children=[html.Div(id="cloud-chart-container", children=[])])
+        ),
+
+        
         html.Div([
             dcc.Markdown(children=f"""```python{code_snippet_graphQL}```""", ),
         ], className="border border-primary rounded p-3") 
