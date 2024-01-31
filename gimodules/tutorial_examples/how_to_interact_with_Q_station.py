@@ -105,22 +105,33 @@ cloud.login(url, user, pw)
 # Get gi data streams
 print(cloud.streams)
 
-# Get a stream by name
-print(cloud.streams['MID4'])
-
-# Look for variables in a stream
-cloud.find_var('MID4')
 
 # Get data from a stream
-stream_id = cloud.streams[datastream].id
-var_index = cloud.stream_variabels['{' + datastream + '}__{' + variable + '}'].index
+stream_name = "my-stream"
+variabl_name = "my-variable"
+
+# Get a stream by name
+print(cloud.streams[stream_name])
+
+# Look for variables in a stream
+cloud.find_var(variabl_name)
+
+# combine stream and variable name
+stream_and_variable_name = stream_name + "__" + variabl_name
+
+# get stream id and variable index
+stream_id = cloud.streams[stream_name].id
+var_index = cloud.stream_variabels[stream_and_variable_name].index
+print("stream id: ", stream_id)
+print("variable index: ", var_index)
 
 # use the last timestamp as end date and the last timestamp minus one day as start date
-end_date = dt.datetime.utcfromtimestamp((float(cloud.streams[datastream].last_ts)/1000)).strftime('%Y-%m-%d %H:%M:%S')
-start_date = (dt.datetime.utcfromtimestamp(float(cloud.streams[datastream].last_ts) / 1000) - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+end_date = dt.datetime.utcfromtimestamp((float(cloud.streams[stream_name].last_ts)/1000)).strftime('%Y-%m-%d %H:%M:%S')
+start_date = (dt.datetime.utcfromtimestamp(float(cloud.streams[stream_name].last_ts) / 1000) - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
 
 # get data from cloud
 df = cloud.get_var_data(stream_id, [var_index], start_date, end_date, 'MINUTE').set_index('Time')
+print(df)
 """
 
 ## example 2 - how to connect to Q.station via LAN
