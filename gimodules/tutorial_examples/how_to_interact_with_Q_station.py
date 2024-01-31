@@ -3,7 +3,7 @@ File: how_to_interact_with_Q_station.py
 Author: aljo
 
 Created on: 18. January 2024
-Last changed: 30. January 2024
+Last changed: 31. January 2024
 
 Description:
 Tutorial Projekt made for Clients of Gantert Instruments 
@@ -24,6 +24,7 @@ import gimodules.py_q_station_connect_cloud.py_q_station_connect_cloud as Qstati
 ########################## constants & variables 
 GI_LOGO = 'assets/gi-logo.png'
 DOCS_URL = 'https://analytics.gi-cloud.io/docs/'
+GI_DOWNLOAD_URL = 'https://www.gantner-instruments.com/support-downloads/download-area/?gidl_product=0&gidl_type=0&gidl_search=utilities'
 
 # Get a list of script names that start with the prefix "example_"
 script_folder = 'gimodules/tutorial_examples/code_examples_from_benoit'
@@ -44,19 +45,6 @@ def get_stream_metadata(url, user, pw,):
 
 
 ## local functions
-def connect_to_q_station(controller_IP, dll_path):
-    #Initialisation of a buffer connection
-    conn=Qstation.ConnectGIns(dll_path)
-    conn.bufferindex=int(0)
-    conn.init_connection(str(controller_IP))
-    c_name = conn.read_controller_name()
-    c_serial_number = conn.read_serial_number()
-    c_sample_rate = conn.read_sample_rate()
-    c_channel_names = conn.read_channel_names()
-    c_number_of_channels = conn.read_channel_count()
-    return c_name, c_serial_number, c_sample_rate, c_channel_names, c_number_of_channels
-
-
 def read_q_station_stream_buffer(controller_IP, dll_path): 
     conn=Qstation.ConnectGIns(dll_path)
     conn.bufferindex=int(0)
@@ -134,6 +122,12 @@ df = cloud.get_var_data(stream_id, [var_index], start_date, end_date, 'MINUTE').
 ## example 2 - how to connect to Q.station via LAN
 code_snippet_q_station = """
 import gimodules.py_q_station_connect_cloud.py_q_station_connect_cloud as Qstation 
+import plotly.graph_objs as go
+import dash
+import dash_bootstrap_components as dbc
+from dash import dcc, html, dash_table
+from dash.dependencies import Input, Output, State
+
 
 # Connect to Q.station
 conn = Qstation.ConnectGIns(dll_path)
@@ -163,6 +157,17 @@ for i in range(1, 9999999):
     if stop_counter > 1000:
         # No data found, stop the loop
         break      
+
+# create table for dash app      
+channel_data = [{'Channel index': i, 'Channel name': c_channel_names[i], 'Channel value': buffer_data[0][i]} for i in c_channel_names.keys()] 
+
+# use table inside dash app
+table = dash_table.DataTable(
+    data=channel_data,
+    columns=[{'name': col, 'id': col} for col in channel_data[0].keys()],
+    style_table={'overflowX': 'auto', 'padding': '1em'},
+    id = 'q-station-table',
+) 
 """
 
 
@@ -254,11 +259,7 @@ header = dbc.Row([
                     html.Img(src=GI_LOGO, style={"height" : "50px"}),
                 ]),
                 dbc.Col([
-                    html.H2("Hands on Python Tutorial"),
-                    html.Span("Learn how to use Python to connect to your Q.station and to the GI.Cloud."),
-                    html.Br(),
-                    html.Span("For more information visit the "), 
-                    html.A("Gantner Docs", href=DOCS_URL, target="_blank", style={"color" : "#0053a5"})
+                    html.H2("Hands on python tutorial", className="pt-4"),
                 ]),
             ],justify="between", style={"padding" : "10px", "border-bottom" : "1px solid #d6d6d6"}, class_name="pb-4")
 
@@ -271,8 +272,13 @@ body = dbc.Row([
             dcc.Tab(label='Connect to Q.station via Cloud', value='page_connect_cloud_to_q_station'),
             dcc.Tab(label='Connect to Q.station via LAN', value='page_connect_local_to_q_station'),
             dcc.Tab(label='How to create advanced Charts', value='page_advanced_code_preview'),
-            dcc.Tab(label='More Code examples', value='page_code_preview')
-        ])
+            dcc.Tab(label='More Code examples', value='page_code_preview'), 
+        ], style={"width" : "100%", "margin" : "0px", "margin" : "0px"}),
+        html.Div([
+            html.Span("For more information visit "), 
+            html.Br(), 
+            html.A("Gantner Docs", href=DOCS_URL, target="_blank", style={"color" : "#0053a5"})
+        ], className="p-3")
     ], width=3),  
     dbc.Col(
         [
@@ -502,33 +508,28 @@ page_connect_local_to_q_station = dbc.Row([
         dbc.Row([
             html.H3("Connect to Q.station via LAN"),
             html.P("For connection with the Q.station via LAN, the Q.station needs to be connected to the same network as your computer. You also need the dll File from GI to communicate with your Q.station"),
-            html.P("You can download the dll file from the GI support website."),
-            dbc.Row([
-                    dbc.Label("Enter the full path to utility dll."),
-
-                    dcc.Input(id="gins-utility", type="text", placeholder="C:\\Program Files\\Gantner Instruments\\GINS-Utility\\GINS-Utility.dll", value="C:\\Users\\aljo\\Downloads\\ginsapy-0.1.0\\ginsapy-0.1.0\\giutility\\giutility_x64.dll"),
-    
-                ], className="mb-3"),
-        ]),
-
+            html.Span("You can download the dll file from the GI support website."),
+     
+                html.A("GI download´s", href=GI_DOWNLOAD_URL, target="_blank", style={"color" : "#0053a5"}), 
+                dbc.Label("Enter the full path to utility dll."),
+                dcc.Input(id="gins-utility", className="m-2", type="text", placeholder="C:\\Program Files\\Gantner Instruments\\GINS-Utility\\GINS-Utility.dll"),
+            ], className="mb-3"),
+ 
         dbc.Row([
-            html.H3("Enter Q station Parameters"),
-            html.P("Enter the IP address of the Q station controller.", className="m-0 p-0"),
-            dbc.Form([
-                dbc.Row([
-                    dbc.Label("Q station Controller IP", width=8),
-                    dbc.Col([
-                        dcc.Input(id="q-station-ip", type="text", placeholder="192.168.178.80", value="192.168.178.80"),
-                    ], width=10)
-                ], className="mb-3" ),
-                dbc.Button('Connect to Q.station', id='connect-to-q-station', n_clicks=0, style={"background-color" : "#0053a5"}, className="mb-3 mt-3"),
-            ])
-        ]),
+            html.H3("Enter Q.station Parameters"),
+            html.Span("Enter the IP address of the Q.station controller."),
+            dbc.Label("Q.station Controller IP", width=8),
+            dcc.Input(id="q-station-ip", type="text",  className="m-2 mt-1", placeholder="192.168.178.80"),
+            dbc.Col([
+                dbc.Button('Connect to Q.station', id='connect-to-q-station', n_clicks=0, style={"background-color" : "#0053a5"}, className="mb-3 mt-3")
+            ], width=6),
+            ], className="mb-3"),
+            
 
         html.Div(id="q-station-connection", children=[]),
         html.Div([
             dcc.Markdown(children=f"""```python{code_snippet_q_station}```""", ),
-        ], className="border border-primary rounded p-3"), 
+        ], className="border border-primary rounded p-3 mt-5"), 
         ])
 
 # component callback
@@ -539,25 +540,52 @@ page_connect_local_to_q_station = dbc.Row([
 
 
 
-def connect_to_q_station_callback(n_clicks, ip, dll_path):
+def connect_to_q_station_callback(n_clicks, controller_IP, dll_path):
     if n_clicks > 0:
-        if ip is None: 
-            return [html.P("No IP address provided. Please provide an IP address.")]
+        if controller_IP == "" and controller_IP is not None: 
+            return [dbc.Alert("No IP address provided. Please provide an IP address.", color="warning")]
         
-        if dll_path is None:
-            return [html.P("No dll path provided. Please provide a dll path.")]
+        if dll_path == "" and dll_path is not None:
+            return [dbc.Alert("No dll path provided. Please provide a dll path.", color="warning")]
         
         # connect to Q.station
-        c_name, c_serial_number, c_sample_rate, c_channel_names, c_number_of_channels = connect_to_q_station(ip, os.path.abspath(dll_path))
-
-        result = [
-            html.P(f"Connected to Q.station {c_name}."),
-            html.P(f"Serial number: {c_serial_number}"),
-            html.P(f"Sample rate: {c_sample_rate}"),
-            html.P(f"Number of channels: {c_number_of_channels}")
-        ]
+        conn = None
+        try: 
+            conn = Qstation.ConnectGIns(dll_path)
+        except:
+            return [dbc.Alert("Could not connect to Q.station. Please check your dll path and your operating system. Are you using the correct dll?", color="warning")]
+        conn.bufferindex=int(0)
+        connected = conn.init_connection(str(controller_IP))
         
-        buffer_data, c_channel_names = read_q_station_stream_buffer(ip, os.path.abspath(dll_path))
+        if not connected: 
+            return [dbc.Alert("Could not connect to Q.station. Please check your IP address and dll path.", color="warning")]
+
+        c_name = conn.read_controller_name()
+        c_serial_number = conn.read_serial_number()
+        c_sample_rate = conn.read_sample_rate()
+        c_channel_names = conn.read_channel_names()
+        c_number_of_channels = conn.read_channel_count()
+
+        # meta data from Q.station
+        result = [
+            html.H5("Q.station connection established"),
+            html.Table([
+                html.Tr([
+                    html.Th("Connected to Q.station"),
+                    html.Th("Serial number"),
+                    html.Th("Sample rate"),
+                    html.Th("Number of channels"),
+                ]),
+                html.Tr([
+                    html.Td(f"{c_name}"),
+                    html.Td(f"{c_serial_number}"),
+                    html.Td(f"{c_sample_rate}"),
+                    html.Td(f"{c_number_of_channels}"),
+                ]),
+            ], className="table table-striped table-bordered")
+        ]
+
+        buffer_data, c_channel_names = read_q_station_stream_buffer(controller_IP, os.path.abspath(dll_path))
         channel_data = create_q_station_table(buffer_data, c_channel_names)
 
         table = dash_table.DataTable(
@@ -567,7 +595,7 @@ def connect_to_q_station_callback(n_clicks, ip, dll_path):
             id = 'q-station-table',
         )
         result.append(table)
-        update = dcc.Interval(id='graph-update', interval= 2000, n_intervals=0) #todo aljo change to 2000 
+        update = dcc.Interval(id='graph-update', interval= 5000, n_intervals=0) 
         result.append(update)
         
         return result
