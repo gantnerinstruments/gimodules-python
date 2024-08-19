@@ -8,6 +8,7 @@ from requests.auth import HTTPBasicAuth
 # Set logging to debug
 logging.basicConfig(level=logging.DEBUG)
 
+
 def set_environment_variable(var_name, value):
     os.environ[var_name] = value
 
@@ -30,12 +31,12 @@ def load_env_variables():
 def authenticate_and_get_token(username, password, tenant):
     login_url = f"https://{tenant}.gi-cloud.io/token"
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
-    auth = HTTPBasicAuth('gibench', '')
+    auth = HTTPBasicAuth("gibench", "")
     response = requests.post(
         login_url,
-        data={"username": username, "password": password, 'grant_type': 'password'},
-        headers=headers,
-        auth=auth,
+        data={"username": username, "password": password},
+        # headers=headers,
+        # auth=auth,
     )
 
     if response.status_code == 200:
@@ -82,7 +83,9 @@ def main():
 
     # Authenticate and get the bearer token
     try:
-        bearer_token, refresh_token = authenticate_and_get_token(username, password, tenant)
+        bearer_token, refresh_token = authenticate_and_get_token(
+            username, password, tenant
+        )
         print(f"Bearer Token: {bearer_token}")
     except Exception as e:
         print(f"Failed to authenticate: {e}")

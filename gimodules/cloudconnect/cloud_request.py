@@ -75,7 +75,7 @@ class CloudRequest():
         self.url = ""
         self.user = ""
         self.pw = ""
-        self.login_token = None
+        self.login_token = dict | None
         self.refresh_token = None
         self.streams = None
         self.stream_variabels = None
@@ -94,6 +94,17 @@ class CloudRequest():
         self.session_ID = None
         self.csv_config = CsvConfig()
 
+    def login_with_access_token(self, tenant: str, access_token: str):
+        """Logging in with a generated Bearer Token."""
+        self.login_token = {'access_token': access_token}
+        self.url = f'https://{tenant}.gi-cloud.io'
+
+        try:
+            self.get_all_stream_metadata()
+            self.print_streams()
+            self.get_all_var_metadata()
+        except Exception as e:
+            logging.error(e)
 
     def login(self, url:str, user:str, password:str):
 
@@ -825,14 +836,14 @@ class CloudRequest():
         else:
             logging.error("Import failed : first imported csv value  is before the last database timestamp, but must begin after")
         return None
-    
+
     def __import_session_valid(self, stream_id):
         if self.import_session_csv_current == None:
             return False
         elif self.import_session_csv_current['stream_id'] == stream_id and \
             (self.import_session_csv_current['ts'] - time.time()) +5 < self.import_session_csv_current['timeout']:
             return True
-        
+
     def delete_import_session(self):
         """
          method to delete session http API
