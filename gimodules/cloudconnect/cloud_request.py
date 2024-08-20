@@ -94,10 +94,35 @@ class CloudRequest():
         self.session_ID = None
         self.csv_config = CsvConfig()
 
-    def login_with_access_token(self, tenant: str, access_token: str):
-        """Logging in with a generated Bearer Token."""
-        self.login_token = {'access_token': access_token}
-        self.url = f'https://{tenant}.gi-cloud.io'
+
+    def login(self, access_token: str|None = None, url: str|None = None, user: str|None = None,
+              password: str|None = None):
+        """Login method that handles both Bearer Token/tenant and username/password logins."""
+        if url and access_token:
+            self.login_token = {'access_token': access_token}
+            self.url = url
+        elif url and user and password:
+            self.url = url
+            self.user = user
+            self.pw = password
+
+            login_form = {'username': self.user, 'password': self.pw, 'grant_type': 'password'}
+            auth = HTTPBasicAuth('gibench', '')
+            headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+            login_url = self.url + '/token'
+
+            try:
+                res = requests.post(login_url, data=login_form, headers=headers, auth=auth)
+                if res.status_code == 200:
+                    self.login_token = res.json()
+                    self.refresh_token = self.login_token['refresh_token']
+                    logging.info("Login successful")
+                else:
+                    logging.error(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+            except Exception as e:
+                logging.warning(e)
+        else:
+            raise ValueError("Invalid arguments provided for login")
 
         try:
             self.get_all_stream_metadata()
@@ -105,33 +130,6 @@ class CloudRequest():
             self.get_all_var_metadata()
         except Exception as e:
             logging.error(e)
-
-    def login(self, url:str, user:str, password:str):
-
-        self.url = url 
-        self.user = user 
-        self.pw = password
-
-        # prepare request
-        login_form = { 'username': self.user, 'password': self.pw, 'grant_type': 'password' }
-        auth = HTTPBasicAuth('gibench', '')
-        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-        login_url = self.url + '/token'
-
-        # send request
-        try:
-            res = requests.post(login_url, data = login_form, headers = headers, auth = auth)
-            if res.status_code == 200:
-                self.login_token = res.json()
-                self.refresh_token = self.login_token['refresh_token']
-                logging.info("Login successful")
-                self.get_all_stream_metadata()
-                self.print_streams()
-                self.get_all_var_metadata()
-            else: 
-                logging.error(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
-        except Exception as e:
-            logging.warning(e)
     
     def refresh_access_token(self): 
         """
