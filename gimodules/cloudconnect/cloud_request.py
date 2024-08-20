@@ -23,7 +23,7 @@ from requests.auth import HTTPBasicAuth
 from enum import Enum
 from dateutil import tz
 
-from gimodules.cloudconnect import utils
+from gimodules.cloudconnect import utils, authenticate
 
 # Set output level to INFO because default is WARNNG
 logging.getLogger().setLevel(logging.INFO)
@@ -94,10 +94,10 @@ class CloudRequest():
         self.session_ID = None
         self.csv_config = CsvConfig()
 
-
-    def login(self, access_token: str|None = None, url: str|None = None, user: str|None = None,
-              password: str|None = None):
-        """Login method that handles both Bearer Token/tenant and username/password logins."""
+    def login(self, access_token: str | None = None, url: str | None = None, user: str | None = None,
+              password: str | None = None, use_env_file: bool = False):
+        """Login method that handles both Bearer Token/tenant and username/password logins
+        or .env file with tenant, bearer and refresh token."""
         if url and access_token:
             self.login_token = {'access_token': access_token}
             self.url = url
@@ -105,7 +105,15 @@ class CloudRequest():
             self.url = url
             self.user = user
             self.pw = password
+        elif use_env_file:
+            tenant, bearer_token, refresh_token = authenticate.load_env_variables()
+            logging.info(bearer_token)
+            self.url = tenant
+            self.login_token = {'access_token': bearer_token, 'refresh_token': refresh_token}
+        else:
+            raise ValueError("Invalid arguments provided for login")
 
+        if user and password:
             login_form = {'username': self.user, 'password': self.pw, 'grant_type': 'password'}
             auth = HTTPBasicAuth('gibench', '')
             headers = {'Content-Type': 'application/x-www-form-urlencoded'}
@@ -121,8 +129,6 @@ class CloudRequest():
                     logging.error(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
             except Exception as e:
                 logging.warning(e)
-        else:
-            raise ValueError("Invalid arguments provided for login")
 
         try:
             self.get_all_stream_metadata()
