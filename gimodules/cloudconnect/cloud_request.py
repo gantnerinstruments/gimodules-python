@@ -23,7 +23,7 @@ from requests.auth import HTTPBasicAuth
 from enum import Enum
 from dateutil import tz
 
-from gimodules.cloudconnect import utils
+from gimodules.cloudconnect import utils, authenticate
 
 # Set output level to INFO because default is WARNNG
 logging.getLogger().setLevel(logging.INFO)
@@ -75,7 +75,7 @@ class CloudRequest():
         self.url = ""
         self.user = ""
         self.pw = ""
-        self.login_token = None
+        self.login_token = dict | None
         self.refresh_token = None
         self.streams = None
         self.stream_variabels = None
@@ -94,33 +94,48 @@ class CloudRequest():
         self.session_ID = None
         self.csv_config = CsvConfig()
 
+    def login(self, access_token: str | None = None, url: str | None = None, user: str | None = None,
+              password: str | None = None, use_env_file: bool = False):
+        """Login method that handles both Bearer Token/tenant and username/password logins
+        or .env file with tenant, bearer and refresh token."""
+        if url and access_token:
+            self.login_token = {'access_token': access_token}
+            self.url = url
+        elif url and user and password:
+            self.url = url
+            self.user = user
+            self.pw = password
+        elif use_env_file:
+            tenant, bearer_token, refresh_token = authenticate.load_env_variables()
+            logging.info(bearer_token)
+            self.url = tenant
+            self.login_token = {'access_token': bearer_token, 'refresh_token': refresh_token}
+        else:
+            raise ValueError("Invalid arguments provided for login")
 
-    def login(self, url:str, user:str, password:str):
+        if user and password:
+            login_form = {'username': self.user, 'password': self.pw, 'grant_type': 'password'}
+            auth = HTTPBasicAuth('gibench', '')
+            headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+            login_url = self.url + '/token'
 
-        self.url = url 
-        self.user = user 
-        self.pw = password
+            try:
+                res = requests.post(login_url, data=login_form, headers=headers, auth=auth)
+                if res.status_code == 200:
+                    self.login_token = res.json()
+                    self.refresh_token = self.login_token['refresh_token']
+                    logging.info("Login successful")
+                else:
+                    logging.error(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+            except Exception as e:
+                logging.warning(e)
 
-        # prepare request
-        login_form = { 'username': self.user, 'password': self.pw, 'grant_type': 'password' }
-        auth = HTTPBasicAuth('gibench', '')
-        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-        login_url = self.url + '/token'
-
-        # send request
         try:
-            res = requests.post(login_url, data = login_form, headers = headers, auth = auth)
-            if res.status_code == 200:
-                self.login_token = res.json()
-                self.refresh_token = self.login_token['refresh_token']
-                logging.info("Login successful")
-                self.get_all_stream_metadata()
-                self.print_streams()
-                self.get_all_var_metadata()
-            else: 
-                logging.error(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+            self.get_all_stream_metadata()
+            self.print_streams()
+            self.get_all_var_metadata()
         except Exception as e:
-            logging.warning(e)
+            logging.error(e)
     
     def refresh_access_token(self): 
         """
@@ -825,14 +840,14 @@ class CloudRequest():
         else:
             logging.error("Import failed : first imported csv value  is before the last database timestamp, but must begin after")
         return None
-    
+
     def __import_session_valid(self, stream_id):
         if self.import_session_csv_current == None:
             return False
         elif self.import_session_csv_current['stream_id'] == stream_id and \
             (self.import_session_csv_current['ts'] - time.time()) +5 < self.import_session_csv_current['timeout']:
             return True
-        
+
     def delete_import_session(self):
         """
          method to delete session http API
