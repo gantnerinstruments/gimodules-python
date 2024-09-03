@@ -421,6 +421,96 @@ class CloudRequest():
                 logging.error(f"Fetching Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
         except Exception as e:
             logging.warning(e)
+
+    def get_data_np(self, sid:str, index_list:List, tss:str, tse:str, resolution:str = 'nanos'):
+        """Returns a numpy matrix of data with timestamps and values directly from a data stream
+    
+        Args:
+            sid (str): stream_id
+            index_list (list[str]): channel_index e.g. ["a10", "a11"]
+            tss (str): start timestamp
+            tse (str): end timestamp
+            resolution (str, optional): 'MONTH','WEEK','DAY','HOUR','QUARTER_HOUR','MINUTE','SECOND','HZ10','HZ100','KHZ','KHZ10','nanos'
+                The available resolutions are accessible via the attribute ".resolutions". 
+                Do not forget at the end the .values  Defaults to 'nanos'.
+
+        Returns:
+            np.array(data_matrix): numpy matrix
+        """
+
+        selected_index_string="" 
+        if resolution=='nanos' and len(index_list) > 0: # nanos == raw data
+            for j in range(0,len(index_list)): # concat var_index for query
+                selected_index_string = selected_index_string + "\"" + index_list[j] + "\"" + " ,"
+            # build query 
+            
+            self.query ="{\n  Raw(columns: [\"ts\", \"nanos\"," + selected_index_string + "], \
+                sid: \"" + sid + "\",\
+                from: " + tss + ",\
+                to: " + tse + ") {\n    data\n  }\n}\n"             
+        
+        elif len(index_list) > 0:
+            selected_index_string = self._build_sensorid_querystring(index_list)
+
+            self.query = f"""
+            {{
+                analytics(
+                    from: {tss},
+                    to: {tse},
+                    resolution: {resolution},
+                    sid: "{sid}"
+                ) {{
+                    ts
+                    {selected_index_string}
+                }}
+            }}
+        """
+        else:
+            logging.info("no variable selected")
+
+        url_list = self.url+'/__api__/gql'
+        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
+        try:
+            res = requests.post(url_list, json={'query':self.query}, headers = headers)
+            if res.status_code == 200 and not "errors" in res.text: 
+                requested_data = res.json()
+
+                ### Filter Data out of request
+                if resolution=='nanos':
+                    data_matrix=requested_data['data']['Raw']['data']
+                    self.data=np.array(data_matrix)
+                else:
+                    self.data=np.zeros((len(requested_data['data']['analytics']['ts']),len(index_list)+1))
+                    self.data[:,0]=requested_data['data']['analytics']['ts']
+                    for k in range(0,len(index_list)):
+                        self.data[:,k+1]=requested_data['data']['analytics'][index_list[k]]['avg']
+                
+                ### create numpy matrix 
+                self.data=self.data.astype(float)
+                nonecheck=np.isnan(self.data[:,:])
+                none_index=np.where(nonecheck == True)
+
+                #none number can be at the begining or at the end.
+                if len(none_index[0])>0:
+                    first_none=none_index[0][0]
+                    last_none=none_index[0][-1]
+                    if last_none==len(self.data)-1:
+                        self.data=self.data[0:first_none-1,:]
+                    else:    
+                        self.data=self.data[last_none+1:-1,:]
+
+                return self.data
+            elif res.status_code == 401 or res.status_code == 403:
+                logging.info("Token expired. Renewing...")
+                self.refresh_access_token()
+                return self.get_var_data(sid, index_list, start_date, end_date, resolution)
+            # Show error Message from Server
+            else: 
+                error = json.loads(res.text)
+                logging.error(f"Fetching Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
+        except Exception as e:
+            logging.warning(e)
+
     
     def _get_stream_name_for_sid_vid(self, sid:str, vid:str):
         if self.stream_variabels != None:
