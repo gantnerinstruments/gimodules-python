@@ -20,7 +20,11 @@ $ `pytest`
 
 ### requirements
 
-To create project all current requirements automatically:
+To create the requirements file for the project, run the following command:
+
+$ `pipreqs .`
+
+To create project all current packages installed in your venv for requirements automatically:
 
 $ `pip3 freeze > requirements.txt`
 **_NOTE:_** Remove the old gimodules version from requirements.txt before pushing (dependency conflict).
