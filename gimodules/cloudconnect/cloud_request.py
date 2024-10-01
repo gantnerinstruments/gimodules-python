@@ -1,6 +1,5 @@
 
 """
-@author: aljo, 
 Module to send simplified http request to the Cloud
 """
 
@@ -129,12 +128,12 @@ class CloudRequest():
                     logging.error(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
             except Exception as e:
                 logging.warning(e)
-
         try:
             self.get_all_stream_metadata()
             self.print_streams()
             self.get_all_var_metadata()
         except Exception as e:
+            raise Exception(f"Login failed! {e}")
             logging.error(e)
     
     def refresh_access_token(self): 
@@ -320,7 +319,7 @@ class CloudRequest():
             """
         return s
 
-    def get_var_data(self, sid:str, index_list:List, start_date:str, end_date:str, resolution:str = 'nanos', custom_column_names:list = []):
+    def get_var_data(self, sid:str, index_list:List, start_date:str, end_date:str, resolution:str = 'nanos', custom_column_names:list = [], timezone:str = 'UTC'):
         """Returns a np.matrix of data and pandas df with timestamps and values directly from a data stream
 
         Args:
@@ -408,7 +407,7 @@ class CloudRequest():
                     self.df = pd.DataFrame(self.data, columns=custom_column_names)
 
                 self.df['Time'] = pd.to_datetime(self.df['Time'], unit='ms')
-                self.__convert_df_time_from_utc_to_tz()
+                self.__convert_df_time_from_utc_to_tz(timezone)
                 
                 return self.df 
             elif res.status_code == 401 or res.status_code == 403:
@@ -540,31 +539,18 @@ class CloudRequest():
                     if x.index == i:
                         col_names.append(x.name)
             return col_names
-        return None 
-    
-    
-    def convert_datetime_to_unix(self, datetime:str):
-        """converting timestamps from the selected tz to UTC
+        return None
 
-        Args:
-            datetime (str): required date format '%Y-%m-%d %H:%M:%S'
 
-        Returns:
-            int: UNIX timestamp
-        """
-        try: 
-            current_tz = pytz.timezone(self.timezone)
-   
-            # Create a timezone-aware datetime object with DST information
-            datetime_obj = current_tz.localize(dt.datetime.strptime(datetime, '%Y-%m-%d %H:%M:%S'))
-
-            # Convert to UTC timezone
-            utc_obj = datetime_obj.astimezone(pytz.utc)
-
-            # Convert UTC datetime object to Unix timestamp
-            return int(utc_obj.timestamp()) * 1000
+    @staticmethod
+    def convert_datetime_to_unix(datetime_str: str):
+        try:
+            date_time_obj = dt.datetime.strptime(datetime_str, '%Y-%m-%d %H:%M:%S')
+            timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz('UTC'))
+            timestamp = int(dt.datetime.timestamp(timestamp_utc)) * 1000
+            return timestamp
         except Exception as err:
-            logging.error("Fehler beim konvertieren des Zeitstempels:", dt.datetime.now, err)
+            logging.error(f"Error converting timestamp:{dt.datetime.now()}, {err}")
 
 
     def set_timezone(self, timezone:str = 'Europe/Vienna'): 
@@ -583,13 +569,13 @@ class CloudRequest():
             return False
     
     
-    def __convert_df_time_from_utc_to_tz(self): 
+    def __convert_df_time_from_utc_to_tz(self, timezone:str = 'UTC'):
         """ Converts the time stamps of the dataframe to the desired time zone. The default time zone is Vienna. The GI.Cloud always delivers the data in UTC.
             Defaults to 'Europe/Vienna'.
         """
         try: 
             self.df['Time'] = self.df['Time'].dt.tz_localize('UTC')
-            self.df['Time'] = self.df['Time'].dt.tz_convert(self.timezone)
+            self.df['Time'] = self.df['Time'].dt.tz_convert(timezone)
         except Exception as err:
             logging.error("Error:", dt.datetime.now, err)
 
