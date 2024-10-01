@@ -863,7 +863,7 @@ class CloudRequest():
         #    check if stream exists
         #**************************************
         if stream_name in self.streams:
-            write_ID = stream_name[stream_name].id
+            write_ID = self.streams[stream_name].id
             reprise = 1# in this case reprise =1
             logging.info("Stream already existing in GI.Cloud import will be continued - {}".format(write_ID))
         else:
