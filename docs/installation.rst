@@ -58,7 +58,7 @@ For detailed explanation and Python examples view the GInsUtility_Documentation_
 
 .. _GInsUtility_Documentation: https://dev.gantner-instruments.com/webfiles/public/Download/Software/Python/ginsapy/doc/build/html/index.html
 
-.. important:: When developing with this library please refer to the  ::download:`C-Headerfile <docs\eGateHighSpeedPort.h>` to get have documentation of implemented functions.
+.. important:: When developing with this library please refer to the  ::download:`C-Headerfile <\eGateHighSpeedPort.h>` to get have documentation of implemented functions.
 
 
 
