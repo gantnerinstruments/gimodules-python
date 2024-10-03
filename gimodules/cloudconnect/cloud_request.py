@@ -669,24 +669,33 @@ class CloudRequest():
         except Exception as err:
             logging.error("Error:", dt.datetime.now, err)
 
-    def get_measurement_limit(self, sid:str, limit:str): 
+    def get_measurement_limit(self, sid:str, limit:str, start:int = 0, end:int = 9999999999999):
         """
              'get measurement between time start and time stop'
 
         Args:
             sid (str): Stream Id
-            limit (str): 
+            limit (str):
         """
-        query_measurement="{\n  measurementPeriods(sid: \"" + sid + "\",from: 0,\n    to: 9999999999999, limit: "+str(limit)+", sort: DESC) \
-        {\n    minTs\n    maxTs\n    mid\n    sampleRate\n  }\n}"
-        url_list=self.url+'/__api__/gql'
-        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
+        query_measurement = f"""
+        {{
+            measurementPeriods(sid: "{sid}", from: {start}, to: {end}, limit: {limit}, sort: DESC) {{
+                minTs
+                maxTs
+                mid
+                sampleRate
+            }}
+        }}"""
+        url = f'{self.url}/__api__/gql'
+        headers = {'Authorization': f'Bearer {self.login_token["access_token"]}'}
+
         try:
-            res = requests.post(url_list, json = {'query':query_measurement}, headers = headers)
-            if res.status_code == 200: 
+            res = requests.post(url, json={'query': query_measurement}, headers=headers)
+            if res.ok:
                 self.request_measurement_res = res.json()
-            else: 
-                logging.error(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
+                return self.request_measurement_res
+            else:
+                logging.error(f"Failed! Code: {res.status_code}, Reason: {res.reason}")
         except Exception as err:
             logging.warning(err)
 
