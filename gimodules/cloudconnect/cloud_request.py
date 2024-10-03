@@ -67,7 +67,37 @@ class GIStreamVariable:
     unit: str
     data_type: str
     sid: str
-        
+
+
+def get_sample_rate(resolution: str):
+    if resolution == 'MONTH':
+        return 1 / (30 * 24 * 60 * 60)
+    elif resolution == 'WEEK':
+        return 1 / (7 * 24 * 60 * 60)
+    elif resolution == 'DAY':
+        return 1 / (24 * 60 * 60)
+    elif resolution == 'HOUR':
+        return 1 / (60 * 60)
+    elif resolution == 'QUARTER_HOUR':
+        return 1 / (15 * 60)
+    elif resolution == 'MINUTE':
+        return 1 / 60
+    elif resolution == 'SECOND':
+        return 1
+    elif resolution == 'HZ10':
+        return 10
+    elif resolution == 'HZ100':
+        return 100
+    elif resolution == 'KHZ':
+        return 1_000
+    elif resolution == 'KHZ10':
+        return 10_000
+    elif resolution == 'nanos':
+        return 1 / 1e9
+    else:
+        return 1
+
+
 class CloudRequest():
     
     def __init__ (self):
@@ -319,6 +349,78 @@ class CloudRequest():
             """
         return s
 
+    def get_var_data_batched(self, sid: str, index_list: List, start_date: str, end_date: str,
+                             resolution: str = 'nanos',
+                             custom_column_names: list = [], timezone: str = 'UTC', max_points: int = 700_000):
+        """BETA: This makes batched calls to GraphQL. Not recommended.
+        This is still about 2x slower than get_data_as_csv() since we make more http requests"""
+        tss, tse = map(self.convert_datetime_to_unix, [start_date, end_date])
+        duration_seconds = (tse - tss) // 1000
+        sample_rate = get_sample_rate(resolution)
+        total_points = sample_rate * len(index_list) * duration_seconds
+
+        if total_points > max_points:
+            num_batches = (total_points // max_points) + 1
+            timestamps = np.linspace(tss, tse, num_batches + 1, dtype=int)
+            logging.info(f"Total points: {total_points}, Num batches: {num_batches}")
+            return pd.concat([self.get_var_data_batch(sid, index_list, timestamps[i], timestamps[i + 1], resolution,
+                                                      custom_column_names, timezone) for i in
+                              range(num_batches)]).reset_index(drop=True)
+        return self.get_var_data_batch(sid, index_list, tss, tse, resolution, custom_column_names, timezone)
+
+    def get_var_data_batch(self, sid, index_list, tss, tse, resolution, custom_column_names, timezone):
+        selected_index_string = ",".join([f"\"{index}\"" for index in index_list]) if index_list else ""
+        if not selected_index_string:
+            logging.info("No variable selected")
+            return None
+
+        query = f"""
+                {{
+                    analytics(
+                        from: {tss},
+                        to: {tse},
+                        resolution: {resolution},
+                        sid: "{sid}"
+                    ) {{
+                        ts
+                        {self._build_sensorid_querystring(index_list)}
+                    }}
+                }}
+            """
+
+        res = self._execute_gql_request(query)
+        if not res:
+            return None
+
+        requested_data = res.json()
+        if resolution == 'nanos':
+            data_matrix = requested_data['data']['Raw']['data']
+        else:
+            data_matrix = np.column_stack(([requested_data['data']['analytics']['ts']] +
+                                           [requested_data['data']['analytics'][idx]['avg'] for idx in index_list]))
+
+        data_matrix = np.array(data_matrix, dtype=float)
+        valid_data = data_matrix[~np.isnan(data_matrix).any(axis=1)]
+
+        columns = custom_column_names if custom_column_names else self.__get_column_names(sid, index_list)
+        df = pd.DataFrame(valid_data, columns=columns)
+        df['Time'] = pd.to_datetime(df['Time'], unit='ms')
+        self.__convert_df_time_from_utc_to_tz(df, timezone)
+        return df
+
+    def _execute_gql_request(self, query):
+        url = f"{self.url}/__api__/gql"
+        headers = {'Authorization': f"Bearer {self.login_token['access_token']}"}
+        res = requests.post(url, json={'query': query}, headers=headers)
+
+        if res.status_code == 200 and "errors" not in res.text:
+            return res
+        elif res.status_code in [401, 403]:
+            logging.info("Token expired. Renewing...")
+            self.refresh_access_token()
+            return self._execute_gql_request(query)
+        logging.error(f"Request failed with code {res.status_code}: {res.text}")
+        return None
 
     def get_var_data(self, sid:str, index_list:List, start_date:str, end_date:str, resolution:str = 'nanos', custom_column_names:list = [], timezone:str = 'UTC'):
         """Returns a np.matrix of data and pandas df with timestamps and values directly from a data stream
@@ -408,14 +510,14 @@ class CloudRequest():
 
                 ### create pandas df
                 if len(custom_column_names) == 0: # add option for custom names
-                    self.df = pd.DataFrame(self.data, columns=self.__get_column_names(sid, index_list))
+                    df = pd.DataFrame(self.data, columns=self.__get_column_names(sid, index_list))
                 else: 
-                    self.df = pd.DataFrame(self.data, columns=custom_column_names)
+                    df = pd.DataFrame(self.data, columns=custom_column_names)
 
-                self.df['Time'] = pd.to_datetime(self.df['Time'], unit='ms')
-                self.__convert_df_time_from_utc_to_tz(timezone)
+                df['Time'] = pd.to_datetime(df['Time'], unit='ms')
+                self.__convert_df_time_from_utc_to_tz(df, timezone)
                 
-                return self.df 
+                return df
             elif res.status_code == 401 or res.status_code == 403:
                 logging.info("Token expired. Renewing...")
                 self.refresh_access_token()
@@ -665,13 +767,18 @@ class CloudRequest():
             return False
     
     
-    def __convert_df_time_from_utc_to_tz(self, timezone:str = 'UTC'):
+    def __convert_df_time_from_utc_to_tz(self, df:pd.DataFrame, timezone:str = 'UTC'):
         """ Converts the time stamps of the dataframe to the desired time zone. The default time zone is Vienna. The GI.Cloud always delivers the data in UTC.
             Defaults to 'Europe/Vienna'.
         """
         try: 
-            self.df['Time'] = self.df['Time'].dt.tz_localize('UTC')
-            self.df['Time'] = self.df['Time'].dt.tz_convert(timezone)
+            df['Time'] = df['Time'].dt.tz_localize('UTC')
+            df['Time'] = df['Time'].dt.tz_convert(timezone)
+        except TypeError as err:
+            if "Already tz-aware" in str(err):
+                df['Time'] = df['Time'].dt.tz_convert('UTC')
+            else:
+                raise err
         except Exception as err:
             logging.error("Error:", dt.datetime.now, err)
 
