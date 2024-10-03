@@ -319,6 +319,7 @@ class CloudRequest():
             """
         return s
 
+
     def get_var_data(self, sid:str, index_list:List, start_date:str, end_date:str, resolution:str = 'nanos', custom_column_names:list = [], timezone:str = 'UTC'):
         """Returns a np.matrix of data and pandas df with timestamps and values directly from a data stream
 
@@ -344,12 +345,17 @@ class CloudRequest():
             for j in range(0,len(index_list)): # concat var_index for query
                 selected_index_string = selected_index_string + "\"" + index_list[j] + "\"" + " ,"
             # build query 
-            
-            self.query ="{\n  Raw(columns: [\"ts\", \"nanos\"," + selected_index_string + "], \
-                sid: \"" + sid + "\",\
-                from: " + tss + ",\
-                to: " + tse + ") {\n    data\n  }\n}\n"             
-        
+
+            self.query = f'''{{
+              Raw(columns: ["ts", "nanos", {selected_index_string}], 
+              sid: "{sid}",
+              from: {tss},
+              to: {tse}) {{
+                data
+              }}
+            }}'''
+
+
         elif len(index_list) > 0:
             selected_index_string = self._build_sensorid_querystring(index_list)
 
@@ -669,9 +675,10 @@ class CloudRequest():
         except Exception as err:
             logging.error("Error:", dt.datetime.now, err)
 
-    def get_measurement_limit(self, sid:str, limit:str, start:int = 0, end:int = 9999999999999):
+    def get_measurement_limit(self, sid:str, limit:int, start_ts:float = 0, end_ts:float = 9999999999999, sort:str = 'DESC'):
         """
-             'get measurement between time start and time stop'
+             Fetches the metadata of the last n measurements of a stream,
+             or the measurements between two timestamps.
 
         Args:
             sid (str): Stream Id
@@ -679,7 +686,7 @@ class CloudRequest():
         """
         query_measurement = f"""
         {{
-            measurementPeriods(sid: "{sid}", from: {start}, to: {end}, limit: {limit}, sort: DESC) {{
+            measurementPeriods(sid: "{sid}", from: {start_ts}, to: {end_ts}, limit: {limit}, sort: {sort}) {{
                 minTs
                 maxTs
                 mid
@@ -699,14 +706,22 @@ class CloudRequest():
         except Exception as err:
             logging.warning(err)
 
-    def print_measurement(self): # TODO test function
+
+
+    def get_measurement_periods(self):
+        """
+        Get a list of measurement periods with start and stop ts.
+        Requires to call get_measurement_limit before.
+        """
         limit = len(self.request_measurement_res['data']['measurementPeriods'])
         measurement_list = np.zeros((int(limit),2))
+
         for l in range(0,int(limit)):
-        #print("start : ",request_measurement_res['data']['measurementPeriods'][l]['minTs'],"stop:",request_measurement_res['data']['measurementPeriods'][l]['maxTs'])
             measurement_list[l,0] = self.request_measurement_res['data']['measurementPeriods'][l]['minTs']
             measurement_list[l,1] = self.request_measurement_res['data']['measurementPeriods'][l]['maxTs']
-        return(measurement_list)
+
+        return measurement_list
+
         
     #### ubdf importer 
     def create_import_session_udbf(self, sid:str, stream_name:str):
