@@ -24,3 +24,5 @@ iniconfig~=1.1.1
 matplotlib~=3.5.2
 python-dotenv~=1.0.1
 plotly~=5.9.0
+mypy
+flake8

@@ -1,0 +1,33 @@
+name: Lint and Type Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.12.8'
+
+    - name: Install dependencies
+      run: |
+        pip install flake8 mypy
+
+    - name: Lint with flake8 (PEP 8 check)
+      run: |
+        flake8 gimodules/
+
+    - name: Type check with mypy
+      run: |
+        mypy gimodules/
