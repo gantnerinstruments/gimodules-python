@@ -14,7 +14,7 @@ import logging
 import pytz
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Union, Any, Type, cast
+from typing import List, Dict, Optional, Union, Any
 from requests.auth import HTTPBasicAuth
 from enum import Enum
 from dateutil import tz
@@ -102,7 +102,6 @@ class Resolution(Enum):
     KHZ10 = "KHZ10"
     NANOS = "nanos"
 
-
 def get_sample_rate(resolution: str):
     if resolution == 'MONTH':
         return 1 / (30 * 24 * 60 * 60)
@@ -131,29 +130,27 @@ def get_sample_rate(resolution: str):
     else:
         return 1
 
-
-class CloudRequest():
-
-    def __init__ (self):
-        self.url = ""
-        self.user = ""
-        self.pw = ""
-        self.login_token = dict | None
-        self.refresh_token = None
-        self.streams = None
-        self.stream_variabels = None
+class CloudRequest:
+    def __init__(self) -> None:
+        self.url: str | None = ""
+        self.user: str = ""
+        self.pw: str = ""
+        self.login_token: Optional[Dict[str, str | None]] = None
+        self.refresh_token: Optional[str] = None
+        self.streams: dict[str, GIStream] | None = None
+        self.stream_variabels: dict[str, GIStreamVariable] | None = None
         self.query: str = ""
         self.request_measurement_res = None
         self.timezone: str = "Europe/Vienna"
 
         # Enums
         self.resolutions = Resolution
-        self.units = None
+        self.units: Type[Any] = cast(Type[Enum], Enum("Units", {}))
 
         # Importer data
         self.import_session_res_udbf = None
         self.import_session_res_csv = None
-        self.import_session_csv_current = None
+        self.import_session_csv_current: dict | None = None
         self.session_ID = None
         self.csv_config = CsvConfig()
 
@@ -200,7 +197,9 @@ class CloudRequest():
                 res = requests.post(login_url, data=login_form, headers=headers, auth=auth)
                 if res.status_code == 200:
                     self.login_token = res.json()
-                    self.refresh_token = self.login_token.get("refresh_token")
+                    self.refresh_token = (
+                        (self.login_token.get("refresh_token")) if self.login_token else None
+                    )
                     logging.info("Login successful")
                 else:
                     logging.error(
@@ -210,6 +209,9 @@ class CloudRequest():
                 logging.warning(f"Request error during login: {e}")
 
         try:
+            assert self.login_token, "Login token is None even after Login!!"
+            # Set headers for future requests after login
+            self.headers: dict = {"Authorization": f"Bearer {self.login_token['access_token']}"}
             self.get_all_stream_metadata()
             self.print_streams()
             self.get_all_var_metadata()
@@ -269,11 +271,9 @@ class CloudRequest():
 
         # Prepare request
         url_list = f"{self.url}/kafka/structure/sources"
-        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
-
         # Send request
         try:
-            res = requests.get(url_list, headers=headers)
+            res = requests.get(url_list, headers=self.headers)
             if res.status_code == 200:
                 response_data = res.json()
                 self.streams = {}  # Reset memory
@@ -296,7 +296,7 @@ class CloudRequest():
                 return self.streams
             elif res.status_code in {401, 403}:
                 self.refresh_access_token()
-                res = requests.get(url_list, headers=headers)
+                res = requests.get(url_list, headers=self.headers)
                 if res.status_code == 200:
                     return self.get_all_stream_metadata()
                 else:
@@ -344,6 +344,7 @@ class CloudRequest():
 
         # Prepare request
         url_list = f"{self.url}/__api__/gql"
+        assert self.login_token, "No valid access token. Please log in first."
         headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
         self.stream_variabels = {}  # Reset memory
         unit_names = set()  # Use a set to avoid duplicate units
@@ -690,9 +691,8 @@ class CloudRequest():
 
         # Send the request
         url_list = f"{self.url}/__api__/gql"
-        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
         try:
-            res = requests.post(url_list, json={"query": self.query}, headers=headers)
+            res = requests.post(url_list, json={"query": self.query}, headers=self.headers)
             if res.status_code == 200 and "errors" not in res.text:
                 requested_data = res.json()
 
@@ -805,9 +805,8 @@ class CloudRequest():
 
         # Send the request
         url_list = f"{self.url}/__api__/gql"
-        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
         try:
-            res = requests.post(url_list, json={"query": self.query}, headers=headers)
+            res = requests.post(url_list, json={"query": self.query}, headers=self.headers)
             if res.status_code == 200 and "errors" not in res.text:
                 requested_data = res.json()
 
@@ -872,7 +871,7 @@ class CloudRequest():
         Returns:
             Optional[str]: The stream name if found, otherwise None.
         """
-        if self.stream_variabels is not None:
+        if self.stream_variabels is not None and self.streams is not None:
             stream = [
                 stream_name
                 for stream_name, gi_stream in self.streams.items()
@@ -977,12 +976,11 @@ class CloudRequest():
         """
         # Send request
         url_list = f"{self.url}/__api__/gql"
-        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
         try:
             res = requests.post(
                 url_list,
                 json={"query": self.query},
-                headers=headers,
+                headers=self.headers,
                 stream=streaming,
             )
             if res.status_code == 200 and "errors" not in res.text:
@@ -1043,7 +1041,7 @@ class CloudRequest():
         return col_names
 
     @staticmethod
-    def convert_datetime_to_unix(datetime_str: str) -> int | None:
+    def convert_datetime_to_unix(datetime_str: str) -> float | None:
         """
         Converts a datetime string to a Unix timestamp in milliseconds.
 
@@ -1051,7 +1049,7 @@ class CloudRequest():
             datetime_str (str): The datetime string in "YYYY-MM-DD HH:MM:SS" format.
 
         Returns:
-            Optional[int]: The Unix timestamp in milliseconds, or None if conversion fails.
+            Optional[float]: The Unix timestamp in milliseconds, or None if conversion fails.
         """
         try:
             date_time_obj = dt.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S")
@@ -1143,10 +1141,9 @@ class CloudRequest():
         }}
         """
         url_list = f"{self.url}/__api__/gql"
-        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
 
         try:
-            res = requests.post(url_list, json={"query": query_measurement}, headers=headers)
+            res = requests.post(url_list, json={"query": query_measurement}, headers=self.headers)
             if res.status_code == 200:
                 self.request_measurement_res = res.json()
                 return self.request_measurement_res
@@ -1206,12 +1203,8 @@ class CloudRequest():
             "SampleRate": "-1",
             "AutoCreateMetaData": "true",
         }
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.login_token['access_token']}",
-        }
         try:
-            res = requests.post(url_list, headers=headers, json=param)
+            res = requests.post(url_list, headers=self.headers, json=param)
             if res.status_code == 200:
                 self.import_session_res_udbf = res.json()
                 return self.import_session_res_udbf
@@ -1297,14 +1290,9 @@ class CloudRequest():
             "CSVSettings": csv_config.get_config(),
         }
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.login_token['access_token']}",
-        }
-
         try:
             logging.debug(f"CSV import parameters: {param}")
-            res = requests.post(url_list, headers=headers, json=param)
+            res = requests.post(url_list, headers=self.headers, json=param)
             if res.status_code == 200:
                 self.import_session_res_csv = res.json()
                 self.import_session_csv_current = {
@@ -1427,7 +1415,7 @@ class CloudRequest():
         # **************************************
         #    Check if stream exists
         # **************************************
-        if stream_name in self.streams:
+        if self.streams is not None and stream_name in self.streams:
             write_ID = self.streams[stream_name].id
             reprise = 1
             logging.info(
@@ -1448,7 +1436,7 @@ class CloudRequest():
         # **************************************
         #    Check last imported timestamps
         # **************************************
-        if reprise == 1:
+        if reprise == 1 and self.streams is not None:
             try:
                 last_timestamp = self.streams[stream_name].last_ts
                 timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp / 1000)
@@ -1566,13 +1554,9 @@ class CloudRequest():
         """
         url_list = f"{self.url}/online/data"
         param = {"Variables": var_ids, "Function": "read"}
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.login_token['access_token']}",
-        }
 
         try:
-            res = requests.post(url_list, headers=headers, json=param)
+            res = requests.post(url_list, headers=self.headers, json=param)
             if res.status_code == 200:
                 current_live_value = res.json()
                 logging.info(f"Current live value: {current_live_value}")
@@ -1605,13 +1589,9 @@ class CloudRequest():
             "Values": write_list,
             "Function": "write",
         }
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.login_token['access_token']}",
-        }
 
         try:
-            res = requests.post(url_list, headers=headers, json=param)
+            res = requests.post(url_list, headers=self.headers, json=param)
             if res.status_code == 200:
                 write_value_res = res.json()
                 logging.info("Data successfully written.")
@@ -1625,9 +1605,7 @@ class CloudRequest():
 
         return None
 
-    def get_gistreamvariables(
-        self, stream: str, variables: List[str]
-    ) -> List[GIStreamVariable] | None:
+    def get_gistreamvariables(self, stream: str, variables: List[str]) -> List[GIStreamVariable]:
         """
         Retrieves GIStreamVariable instances for the given stream and variable names.
 
