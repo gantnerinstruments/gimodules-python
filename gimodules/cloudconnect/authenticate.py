@@ -46,9 +46,7 @@ def load_env_variables() -> Tuple[Optional[str], Optional[str], Optional[str]]:
     return tenant, token, refresh_token
 
 
-def authenticate_and_get_token(
-    username: str, password: str, tenant_url: str
-) -> Tuple[str, str]:
+def authenticate_and_get_token(username: str, password: str, tenant_url: str) -> Tuple[str, str]:
     login_url: str = f"{tenant_url}/token"
     headers: dict = {"Content-Type": "application/x-www-form-urlencoded"}
     auth = HTTPBasicAuth("gibench", "")
@@ -69,15 +67,12 @@ def authenticate_and_get_token(
         logging.debug("Authentication successful. response: %s", tokens)
         return tokens["access_token"], tokens["refresh_token"]
 
-    raise Exception(
-        f"Authentication failed. Status code: {response.status_code}"
-    )
+    raise Exception(f"Authentication failed. Status code: {response.status_code}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Authenticate and get a bearer token "
-        "using cloud credentials."
+        description="Authenticate and get a bearer token " "using cloud credentials."
     )
 
     parser.add_argument(
