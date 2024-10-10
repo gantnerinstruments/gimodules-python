@@ -26,3 +26,5 @@ python-dotenv~=1.0.1
 plotly~=5.9.0
 mypy
 flake8
+pandas-stubs
+ipywidgets
