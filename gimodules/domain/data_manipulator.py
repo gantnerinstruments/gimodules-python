@@ -1,12 +1,8 @@
 # This module implements domain functions of the python write section
 
 
-import numpy as np
 import pandas as pd
 from datetime import datetime
-import datetime as dt
-
-from pandas.core.arrays.sparse import dtype
 
 
 def calc_sums(arr, frequenzy, aggregation="D", ts_index=0):
@@ -23,9 +19,7 @@ def calc_sums(arr, frequenzy, aggregation="D", ts_index=0):
     df = pd.DataFrame(data=arr)
 
     if frequenzy == "s" or frequenzy == "m":
-        df["datetime"] = pd.to_datetime(
-            df[0] / 1000, unit="s"
-        )  # unit=(D,s,ms,us,ns)
+        df["datetime"] = pd.to_datetime(df[0] / 1000, unit="s")  # unit=(D,s,ms,us,ns)
 
     resample = df.set_index("datetime")
     resample = resample.resample(aggregation).sum()
@@ -34,9 +28,7 @@ def calc_sums(arr, frequenzy, aggregation="D", ts_index=0):
 
     # Fix timestamps (got summed up before)
     for index, row in resample.iterrows():
-        resample[ts_index][index] = (
-            datetime.timestamp(resample["datetime"][index]) * 1000
-        )
+        resample[ts_index][index] = datetime.timestamp(resample["datetime"][index]) * 1000
 
     # Drop datetime column to get original array shape
     resample = resample.drop(["datetime"], axis=1)

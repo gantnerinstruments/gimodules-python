@@ -3,9 +3,7 @@ import pytz
 import pandas as pd
 
 
-def append_timezone_ts_to_df(
-    df, ts_col, new_timezone, old_timezone="Africa/Accra"
-):
+def append_timezone_ts_to_df(df, ts_col, new_timezone, old_timezone="Africa/Accra"):
     """Appends a column of to_new timezone converted timestamps to given Dataframe.
         'Africa/Accra' -> UTC/GMT +0
         America/Phoenix -> ts of arizona
@@ -23,7 +21,7 @@ def append_timezone_ts_to_df(
     # old_timezone = pytz.timezone(old_timezone)
     # new_timezone = pytz.timezone(new_timezone)
 
-    # df = df.assign(ts_new = lambda x: (old_timezone.localize(x[ts_col]).astimezone(new_timezone)))#
+    # df = df.assign(ts_new = lambda x: (old_timezone.localize(x[ts_col]).astimezone(new_timezone)))
 
     df["ts_c"] = pd.to_datetime(df[ts_col] / 1000, unit="s")
 
@@ -32,9 +30,7 @@ def append_timezone_ts_to_df(
     return df
 
 
-def replace_ts_with_timezone_ts(
-    df, ts_col, new_timezone, old_timezone="Africa/Accra"
-):
+def replace_ts_with_timezone_ts(df, ts_col, new_timezone, old_timezone="Africa/Accra"):
 
     df[ts_col] = pd.to_datetime(df[ts_col] / 1000, unit="s")
 
@@ -55,13 +51,9 @@ def ts_to_dateobj_with_timezone(ts, timezone):
         [datetime.datetime]: datetime object
     """
     # UTC to not take localtime into account
-    date_obj = datetime.utcfromtimestamp(
-        ts / 1000
-    )  # Convert into datetime object
+    date_obj = datetime.utcfromtimestamp(ts / 1000)  # Convert into datetime object
 
-    date_obj = date_obj.astimezone(
-        pytz.timezone(timezone)
-    )  # Apply Arizona timezone
+    date_obj = date_obj.astimezone(pytz.timezone(timezone))  # Apply Arizona timezone
 
     return date_obj
 
@@ -126,10 +118,9 @@ def drop_n_rows(df: pd.DataFrame, N: int) -> pd.DataFrame:
     return df.iloc[N:, :]
 
 
-def append_hod_yymmdd(
-    df: pd.DataFrame, ts: str, timezone: str = "America/Phoenix"
-) -> pd.DataFrame:
-    """Based on timestamp column and timezone, add corresponding yymmdd and hhmm (hour and minutes) to df as columns"""
+def append_hod_yymmdd(df: pd.DataFrame, ts: str, timezone: str = "America/Phoenix") -> pd.DataFrame:
+    """Based on timestamp column and timezone,
+    add corresponding yymmdd and hhmm (hour and minutes) to df as columns"""
     yymmdd, yymm, hhmm = [], [], []
 
     for indx, ts in enumerate(df[ts]):

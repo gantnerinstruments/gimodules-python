@@ -82,7 +82,7 @@ class MySQLConnect:
         i = 1
         while i < len(dates_to_query):
             temp_query = replace_dates_in_string(query, [dates_to_query[i - 1], dates_to_query[i]])
-            logging.info(f"Querying from {dates_to_query[i-1]} to {dates_to_query[i]}")
+            logging.info(f"Querying from {dates_to_query[i - 1]} to {dates_to_query[i]}")
 
             frames.append(self.query_sql(temp_query))
             i += 1

@@ -1,15 +1,12 @@
 # Module to reuse predifened plots
 # TODO - implement savefig's with correct path
 
-from ipywidgets.widgets.widget_string import Label
 import seaborn as sns
 import matplotlib
 import matplotlib.pyplot as plt  # to plot graph
-import matplotlib.dates as md
 import pandas as pd  # dataframe library
 import numpy as np
 import datetime as dt
-import os
 import math
 
 
@@ -65,7 +62,7 @@ def plt_violin_seaborn(
     ax = sns.violinplot(x=df[xval], y=df[yval], cut=0)
     ax.set_title(title)
     plt.xticks(rotation=15, ha="right")
-    # plt.figtext(.0, -.1, str(kwargs)) # Append metainformation to the bottom of the chart (for export)
+    # Append metainformation to the bottom of the chart (for export)
     ax.set_ylabel(ylabel)
     sns.despine(left=True)
 
@@ -73,29 +70,12 @@ def plt_violin_seaborn(
     save_fig_in_subfolder(
         ax.figure,
         (
-            "violin_"
-            + yval
-            + "_"
-            + xval
-            + metainfo
-            + (start_yymm + "-" + end_yymm)
+            "violin_" + yval + "_" + xval + metainfo + (start_yymm + "-" + end_yymm)
             if start_yymm is not None
             else (
-                (
-                    "violin_"
-                    + yval
-                    + "_"
-                    + xval
-                    + metainfo
-                    + (start_yymmdd + "-" + end_yymmdd)
-                )
+                ("violin_" + yval + "_" + xval + metainfo + (start_yymmdd + "-" + end_yymmdd))
                 if start_yymmdd is not None
-                else "violin_"
-                + yval
-                + "_"
-                + xval
-                + metainfo
-                + get_now_time_as_string()
+                else "violin_" + yval + "_" + xval + metainfo + get_now_time_as_string()
             )
         ),
     )
@@ -145,10 +125,10 @@ def define_heat_map(
     hmax = 2359
 
     # if user date input: shorten data
-    if start_yymm != None and end_yymm != None:
+    if start_yymm is not None and end_yymm is not None:
         df = df[df.YYMM >= int(start_yymm)]
         df = df[df.YYMM <= int(end_yymm)]
-    if start_yymmdd != None and end_yymmdd != None:
+    if start_yymmdd is not None and end_yymmdd is not None:
         df = df[df.YYMMDD >= int(start_yymmdd)]
         df = df[df.YYMMDD <= int(end_yymmdd)]
 
@@ -213,7 +193,6 @@ def define_heat_map(
     # add helper lines
 
     # differ sample rate
-    constant = 60
     # for i in range(0,24):
     #    ax.axhline(i*constant, color='gray', linewidth=1 )
     diff = _distance(
@@ -227,9 +206,7 @@ def define_heat_map(
 
     # Set costum tick labels TODO - change to 0.05 steps
     ax.set_xticklabels(pivot_hm.columns.levels[2], fontsize=18)
-    if (
-        len(pivot_hm.columns.levels[2]) > 100
-    ):  # create new ticks if more than 20 columns (x-axis)
+    if len(pivot_hm.columns.levels[2]) > 100:  # create new ticks if more than 20 columns (x-axis)
         nw_tick_list = []
         for i, item in enumerate(pivot_hm.columns.levels[2]):
             if xval == "YYMM" or xval == "DHOD":
@@ -248,9 +225,7 @@ def define_heat_map(
     # define z-axis (colorbar)
     cbarlabel = zval + " " + unit
     cbar = ax.figure.colorbar(im, ax=ax)  # , **cbar_kw)
-    cbar.ax.set_ylabel(
-        cbarlabel, rotation=90, va="bottom", fontsize=18, labelpad=30
-    )
+    cbar.ax.set_ylabel(cbarlabel, rotation=90, va="bottom", fontsize=18, labelpad=30)
     # cbar.set_label(zval, labelpad=20)
 
     # set labels
@@ -261,7 +236,7 @@ def define_heat_map(
     plt.title(title, fontsize=20)
     plt.tight_layout()
     plt.show()
-    if save == True:
+    if save:
         save_fig_in_subfolder(
             fig, f"heatmap_{zval}_{get_now_time_as_string()}", "svg"
         )  # svg to avoid losing details on heatmaps
@@ -316,12 +291,10 @@ def double_y_axis_plot(
 
     ax1.set_ylabel(ylabel)
     # ax1.set_ylim(0,1400)
-    ax1.legend(
-        frameon=True, loc="upper left", shadow=True
-    )  # put axis legends in left corner
+    ax1.legend(frameon=True, loc="upper left", shadow=True)  # put axis legends in left corner
 
     # plot right y-axis
-    if y2vals != None:
+    if y2vals is not None:
         ax2 = ax1.twinx()  # merge ax2 to first plot
         ax2.set_ylabel(y2label)
         # Start with color cycle on end of ax1 (to not have duplicate colors)
@@ -331,16 +304,14 @@ def double_y_axis_plot(
             ax2.plot(x_time, df[y2vals[i]], label=y2val_labels[i])
 
         # ax2.set_ylim(-20,70)
-        ax2.legend(
-            frameon=True, loc="upper right", shadow=True
-        )  # put axis legends in left corner
+        ax2.legend(frameon=True, loc="upper right", shadow=True)  # put axis legends in left corner
 
     # rotate x-ticks for better visability
     plt.setp(ax1.get_xticklabels(), rotation=15, horizontalalignment="right")
 
     fig.tight_layout()
     plt.legend()
-    if y2label != None:
+    if y2label is not None:
         plt.title((ylabel + " vs " + x_label + " vs " + y2label), fontsize=25)
     else:
         plt.title((ylabel + " vs " + x_label), fontsize=25)
@@ -370,11 +341,8 @@ def pair_plot(df, variables, zval, *argv, **kwargs):
         plot_kws=dict(s=50, edgecolor="black", linewidth=0.1),
     )
     metainfo = get_metainfo_string(**kwargs)
-    var_str = get_list_as_string(variables)
 
-    save_fig_in_subfolder(
-        g, "pair_plot_" + "_" + metainfo + get_now_time_as_string()
-    )
+    save_fig_in_subfolder(g, "pair_plot_" + "_" + metainfo + get_now_time_as_string())
 
 
 def get_list_as_string(li):
