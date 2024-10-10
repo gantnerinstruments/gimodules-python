@@ -14,7 +14,7 @@ import logging
 import pytz
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Union, Any
+from typing import List, Dict, Optional, Union, Any, Type, cast
 from requests.auth import HTTPBasicAuth
 from enum import Enum
 from dateutil import tz
@@ -102,33 +102,35 @@ class Resolution(Enum):
     KHZ10 = "KHZ10"
     NANOS = "nanos"
 
+
 def get_sample_rate(resolution: str):
-    if resolution == 'MONTH':
+    if resolution == "MONTH":
         return 1 / (30 * 24 * 60 * 60)
-    elif resolution == 'WEEK':
+    elif resolution == "WEEK":
         return 1 / (7 * 24 * 60 * 60)
-    elif resolution == 'DAY':
+    elif resolution == "DAY":
         return 1 / (24 * 60 * 60)
-    elif resolution == 'HOUR':
+    elif resolution == "HOUR":
         return 1 / (60 * 60)
-    elif resolution == 'QUARTER_HOUR':
+    elif resolution == "QUARTER_HOUR":
         return 1 / (15 * 60)
-    elif resolution == 'MINUTE':
+    elif resolution == "MINUTE":
         return 1 / 60
-    elif resolution == 'SECOND':
+    elif resolution == "SECOND":
         return 1
-    elif resolution == 'HZ10':
+    elif resolution == "HZ10":
         return 10
-    elif resolution == 'HZ100':
+    elif resolution == "HZ100":
         return 100
-    elif resolution == 'KHZ':
+    elif resolution == "KHZ":
         return 1_000
-    elif resolution == 'KHZ10':
+    elif resolution == "KHZ10":
         return 10_000
-    elif resolution == 'nanos':
+    elif resolution == "nanos":
         return 1 / 1e9
     else:
         return 1
+
 
 class CloudRequest:
     def __init__(self) -> None:
@@ -530,15 +532,17 @@ class CloudRequest:
 
         return "\n".join(query_parts)
 
-    def get_var_data_batched(self,
-                             sid: str,
-                             index_list: List,
-                             start_date: str,
-                             end_date: str,
-                             resolution: str = 'nanos',
-                             custom_column_names: list = [],
-                             timezone: str = 'UTC',
-                             max_points: int = 700_000):
+    def get_var_data_batched(
+        self,
+        sid: str,
+        index_list: List,
+        start_date: str,
+        end_date: str,
+        resolution: str = "nanos",
+        custom_column_names: list = [],
+        timezone: str = "UTC",
+        max_points: int = 700_000,
+    ):
         """BETA: This makes batched calls to GraphQL. Not recommended.
         This is still about 2x slower than get_data_as_csv() since we make more http requests"""
         tss, tse = map(self.convert_datetime_to_unix, [start_date, end_date])
@@ -550,31 +554,30 @@ class CloudRequest:
             num_batches = (total_points // max_points) + 1
             timestamps = np.linspace(tss, tse, num_batches + 1, dtype=int)
             logging.info(f"Total points: {total_points}, Num batches: {num_batches}")
-            return pd.concat([self.get_var_data_batch(sid,
-                                                      index_list,
-                                                      timestamps[i],
-                                                      timestamps[i + 1],
-                                                      resolution,
-                                                      custom_column_names,
-                                                      timezone) for i in
-                              range(num_batches)]).reset_index(drop=True)
-        return self.get_var_data_batch(sid,
-                                       index_list,
-                                       tss,
-                                       tse,
-                                       resolution,
-                                       custom_column_names,
-                                       timezone)
+            return pd.concat(
+                [
+                    self.get_var_data_batch(
+                        sid,
+                        index_list,
+                        timestamps[i],
+                        timestamps[i + 1],
+                        resolution,
+                        custom_column_names,
+                        timezone,
+                    )
+                    for i in range(num_batches)
+                ]
+            ).reset_index(drop=True)
+        return self.get_var_data_batch(
+            sid, index_list, tss, tse, resolution, custom_column_names, timezone
+        )
 
-    def get_var_data_batch(self,
-                           sid,
-                           index_list,
-                           tss,
-                           tse,
-                           resolution,
-                           custom_column_names,
-                           timezone):
-        selected_index_string = ",".join([f"\"{index}\"" for index in index_list]) if index_list else ""
+    def get_var_data_batch(
+        self, sid, index_list, tss, tse, resolution, custom_column_names, timezone
+    ):
+        selected_index_string = (
+            ",".join([f'"{index}"' for index in index_list]) if index_list else ""
+        )
         if not selected_index_string:
             logging.info("No variable selected")
             return None
@@ -598,25 +601,31 @@ class CloudRequest:
             return None
 
         requested_data = res.json()
-        if resolution == 'nanos':
-            data_matrix = requested_data['data']['Raw']['data']
+        if resolution == "nanos":
+            data_matrix = requested_data["data"]["Raw"]["data"]
         else:
-            data_matrix = np.column_stack(([requested_data['data']['analytics']['ts']] +
-                                           [requested_data['data']['analytics'][idx]['avg'] for idx in index_list]))
+            data_matrix = np.column_stack(
+                (
+                    [requested_data["data"]["analytics"]["ts"]]
+                    + [requested_data["data"]["analytics"][idx]["avg"] for idx in index_list]
+                )
+            )
 
         data_matrix = np.array(data_matrix, dtype=float)
         valid_data = data_matrix[~np.isnan(data_matrix).any(axis=1)]
 
-        columns = custom_column_names if custom_column_names else self.__get_column_names(sid, index_list)
+        columns = (
+            custom_column_names if custom_column_names else self.__get_column_names(sid, index_list)
+        )
         df = pd.DataFrame(valid_data, columns=columns)
-        df['Time'] = pd.to_datetime(df['Time'], unit='ms')
+        df["Time"] = pd.to_datetime(df["Time"], unit="ms")
         self.__convert_df_time_from_utc_to_tz(df, timezone)
         return df
 
     def _execute_gql_request(self, query):
         url = f"{self.url}/__api__/gql"
-        headers = {'Authorization': f"Bearer {self.login_token['access_token']}"}
-        res = requests.post(url, json={'query': query}, headers=headers)
+        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
+        res = requests.post(url, json={"query": query}, headers=headers)
 
         if res.status_code == 200 and "errors" not in res.text:
             return res
@@ -1105,12 +1114,14 @@ class CloudRequest:
         except (AttributeError, TypeError) as err:
             logging.error(f"Error converting DataFrame time to timezone '{timezone}': {err}")
 
-    def get_measurement_limit(self,
-                              sid: str,
-                              limit: int,
-                              start_ts: float = 0,
-                              end_ts: float = 9999999999999,
-                              sort: str = 'DESC') -> dict | None:
+    def get_measurement_limit(
+        self,
+        sid: str,
+        limit: int,
+        start_ts: float = 0,
+        end_ts: float = 9999999999999,
+        sort: str = "DESC",
+    ) -> dict | None:
         """
         Retrieves measurement periods for a given stream ID (sid) with a specified limit.
 
