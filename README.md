@@ -98,7 +98,13 @@ You can format and check the code using lint.sh:
 ```bash
 ./lint.sh [directory/]
 ```
-or with type hints:
+
+Type hints are highly recommended.
+Type hints in Python specify the expected data types of variables,
+function arguments, and return values, improving code readability,
+catching errors early, and aiding in IDE autocompletion.
+
+To include type hints in the check:
 
 ```bash
 mpypy=true ./lint.sh [directory])
