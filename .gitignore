@@ -139,4 +139,6 @@ gi_cloud_tutorial.ipynb
 
 *.ipynb
 
+.vscode/
+code/
 #asdfaiwerghe

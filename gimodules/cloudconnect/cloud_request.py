@@ -1,24 +1,21 @@
-
 """
 Module to send simplified http request to the Cloud
 """
 
-import csv
 from io import BytesIO
 import requests
 import datetime as dt
 import numpy as np
 import pandas as pd
-import json 
 import re
 import uuid
-import time 
+import time
 import logging
 import pytz
 
 from dataclasses import dataclass
-from typing import Type, List, Dict, Tuple, Optional, Union, Any
-from requests.auth import HTTPBasicAuth 
+from typing import List, Dict, Optional, Union, Any, Type, cast
+from requests.auth import HTTPBasicAuth
 from enum import Enum
 from dateutil import tz
 
@@ -27,23 +24,24 @@ from gimodules.cloudconnect import utils, authenticate
 # Set output level to INFO because default is WARNNG
 logging.getLogger().setLevel(logging.INFO)
 
+
 @dataclass
 class CsvConfig:
-    '''Object for tracking parameters for csv import'''
-    # csv config - initialised with default values
+    """Object for tracking parameters for csv import"""
+
     ColumnSeparator: str = ";"
-    DecimalSeparator: str= ","
+    DecimalSeparator: str = ","
     NameRowIndex: int = 0
     UnitRowIndex: int = 0
     ValuesStartRowIndex: int = 1
     ValuesStartColumnIndex: int = 1
-    ## Column 1: Date and Time -> specified in Gantner http docs
-    ## Comment one out: if python formatter differs from C++ formatter
-    ## e.g. "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
+    # Column 1: Date and Time -> specified in Gantner http docs
+    # Comment one out: if python formatter differs from C++ formatter
+    # "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
     DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F"
     DateTimeFmtColumn2: str = ""
     DateTimeFmtColumn3: str = ""
-    
+
     def get_config(self):
         """returns config as dict"""
         return {
@@ -55,12 +53,26 @@ class CsvConfig:
             "ValuesStartColumnIndex": self.ValuesStartColumnIndex,
             "DateTimeFmtColumn1": self.DateTimeFmtColumn1,
             "DateTimeFmtColumn2": self.DateTimeFmtColumn2,
-            "DateTimeFmtColumn3": self.DateTimeFmtColumn3
+            "DateTimeFmtColumn3": self.DateTimeFmtColumn3,
         }
 
+
 @dataclass()
-class GIStreamVariable: 
-    '''Object for tracking available variables'''
+class GIStream:
+    """Object for tracking available streams"""
+
+    name: str
+    id: str
+    sample_rate_hz: str
+    first_ts: int
+    last_ts: int
+    index: int
+
+
+@dataclass()
+class GIStreamVariable:
+    """Object for tracking available variables"""
+
     id: str
     name: str
     index: str
@@ -69,66 +81,94 @@ class GIStreamVariable:
     sid: str
 
 
+class Helpers:
+    @staticmethod
+    def remove_hex_from_string(str):
+        """Remove hex value from input string"""
+        return re.sub(r"[^\x00-\x7f]", r"", str)
+
+
+class Resolution(Enum):
+    MONTH = "MONTH"
+    WEEK = "WEEK"
+    DAY = "DAY"
+    HOUR = "HOUR"
+    QUARTER_HOUR = "QUARTER_HOUR"
+    MINUTE = "MINUTE"
+    SECOND = "SECOND"
+    HZ10 = "HZ10"
+    HZ100 = "HZ100"
+    KHZ = "KHZ"
+    KHZ10 = "KHZ10"
+    NANOS = "nanos"
+
+
 def get_sample_rate(resolution: str):
-    if resolution == 'MONTH':
+    if resolution == "MONTH":
         return 1 / (30 * 24 * 60 * 60)
-    elif resolution == 'WEEK':
+    elif resolution == "WEEK":
         return 1 / (7 * 24 * 60 * 60)
-    elif resolution == 'DAY':
+    elif resolution == "DAY":
         return 1 / (24 * 60 * 60)
-    elif resolution == 'HOUR':
+    elif resolution == "HOUR":
         return 1 / (60 * 60)
-    elif resolution == 'QUARTER_HOUR':
+    elif resolution == "QUARTER_HOUR":
         return 1 / (15 * 60)
-    elif resolution == 'MINUTE':
+    elif resolution == "MINUTE":
         return 1 / 60
-    elif resolution == 'SECOND':
+    elif resolution == "SECOND":
         return 1
-    elif resolution == 'HZ10':
+    elif resolution == "HZ10":
         return 10
-    elif resolution == 'HZ100':
+    elif resolution == "HZ100":
         return 100
-    elif resolution == 'KHZ':
+    elif resolution == "KHZ":
         return 1_000
-    elif resolution == 'KHZ10':
+    elif resolution == "KHZ10":
         return 10_000
-    elif resolution == 'nanos':
+    elif resolution == "nanos":
         return 1 / 1e9
     else:
         return 1
 
 
-class CloudRequest():
-    
-    def __init__ (self):
-        self.url = ""
-        self.user = ""
-        self.pw = ""
-        self.login_token = dict | None
-        self.refresh_token = None
-        self.streams = None
-        self.stream_variabels = None
-        self.query = ""
+class CloudRequest:
+    def __init__(self) -> None:
+        self.url: str | None = ""
+        self.user: str = ""
+        self.pw: str = ""
+        self.login_token: Optional[Dict[str, str | None]] = None
+        self.refresh_token: Optional[str] = None
+        self.streams: dict[str, GIStream] | None = None
+        self.stream_variabels: dict[str, GIStreamVariable] | None = None
+        self.query: str = ""
         self.request_measurement_res = None
-        self.timezone = 'Europe/Vienna'
+        self.timezone: str = "Europe/Vienna"
 
-        # enums 
-        self.resolutions = Resolution 
-        self.units = None
+        # Enums
+        self.resolutions = Resolution
+        self.units: Type[Any] = cast(Type[Enum], Enum("Units", {}))
 
-        # importer data
+        # Importer data
         self.import_session_res_udbf = None
         self.import_session_res_csv = None
-        self.import_session_csv_current = None
+        self.import_session_csv_current: dict | None = None
         self.session_ID = None
         self.csv_config = CsvConfig()
 
-    def login(self, access_token: str | None = None, url: str | None = None, user: str | None = None,
-              password: str | None = None, use_env_file: bool = False):
-        """Login method that handles both Bearer Token/tenant and username/password logins
-        or .env file with tenant, bearer and refresh token."""
+    def login(
+        self,
+        access_token: Optional[str] = None,
+        url: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        use_env_file: bool = False,
+    ) -> None:
+        """Login method that handles Bearer Token/tenant,
+        username/password logins, or .env file."""
+
         if url and access_token:
-            self.login_token = {'access_token': access_token}
+            self.login_token = {"access_token": access_token}
             self.url = url
         elif url and user and password:
             self.url = url
@@ -138,220 +178,371 @@ class CloudRequest():
             tenant, bearer_token, refresh_token = authenticate.load_env_variables()
             logging.info(bearer_token)
             self.url = tenant
-            self.login_token = {'access_token': bearer_token, 'refresh_token': refresh_token}
+            self.login_token = {
+                "access_token": bearer_token,
+                "refresh_token": refresh_token,
+            }
         else:
             raise ValueError("Invalid arguments provided for login")
 
         if user and password:
-            login_form = {'username': self.user, 'password': self.pw, 'grant_type': 'password'}
-            auth = HTTPBasicAuth('gibench', '')
-            headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-            login_url = self.url + '/token'
+            login_form = {
+                "username": self.user,
+                "password": self.pw,
+                "grant_type": "password",
+            }
+            auth = HTTPBasicAuth("gibench", "")
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            login_url = f"{self.url}/token"
 
             try:
                 res = requests.post(login_url, data=login_form, headers=headers, auth=auth)
                 if res.status_code == 200:
                     self.login_token = res.json()
-                    self.refresh_token = self.login_token['refresh_token']
+                    self.refresh_token = (
+                        (self.login_token.get("refresh_token")) if self.login_token else None
+                    )
                     logging.info("Login successful")
                 else:
-                    logging.error(f"Login failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
-            except Exception as e:
-                logging.warning(e)
+                    logging.error(
+                        f"Login failed! Response Code:" f" {res.status_code}, Reason: {res.reason}"
+                    )
+            except requests.RequestException as e:
+                logging.warning(f"Request error during login: {e}")
+
         try:
+            assert self.login_token, "Login token is None even after Login!!"
+            # Set headers for future requests after login
+            self.headers: dict = {"Authorization": f"Bearer {self.login_token['access_token']}"}
             self.get_all_stream_metadata()
             self.print_streams()
             self.get_all_var_metadata()
         except Exception as e:
+            logging.error(f"Login post-processing failed: {e}")
             raise Exception(f"Login failed! {e}")
-            logging.error(e)
-    
-    def refresh_access_token(self): 
+
+    def refresh_access_token(self) -> None:
         """
-        Refresh the access token with a refresh token. 
-        The refresh token is valid for 14 days. 
+        Refresh the access token with a refresh token.
+        The refresh token is valid for 14 days.
         """
-        # prepare request
-        refresh_form = json.dumps({ 'ClientID': 'gibench', 'RefreshToken': self.refresh_token })
-        headers = {'Content-Type': 'application/json'}
-        refresh_url = self.url + '/rpc/AdminAPI.RefreshToken'
-        
-        # send request
-        try: 
-            res = requests.post(refresh_url, data = refresh_form, headers= headers)
-            if res.status_code == 200:
-                res = res.json()
-                res['access_token'] = res.pop('AccessToken')
-                self.login_token = res
-                logging.info("Access Token refreshed")
-            else: 
-                logging.error(f"Could not fetch access token with refresh token\nResponse Code:{res.status_code} \nReason: {res.reason}")
-        except Exception as e:
-            logging.warning(e)
-            
-        
-    def get_all_stream_metadata(self): 
-        """Loads the available meta information from all available streams. 
-        The data is stored in data classes (GIStream) and is accessible via the .streams attribute. 
-        """
-        # check that auth_token exist
-        if self.login_token is not None: 
-            # prepare request
-            url_list = self.url + '/kafka/structure/sources'
-            headers = {'Authorization': 'Bearer ' + self.login_token['access_token']}
-            # send request
-            try: 
-                res = requests.get(url_list, headers=headers)
-                if res.status_code == 200: 
-                    res = res.json()
-                    self.streams = {} # reset memory 
-                    for i in range(0, len(res['Data'])):
-                        name = res['Data'][i]["Name"]
-                        id = res['Data'][i]["Id"]
-                        sample_rate_hz = res['Data'][i]["SampleRateHz"]
-                        first_ts = res['Data'][i]["AbsoluteStart"]
-                        last_ts = res['Data'][i]["LastTimeStamp"]
-                        index = res['Data'][i]["Index"]
-                        # store data in dict with dataclass
-                        self.streams[name] = GIStream(name, id, sample_rate_hz, first_ts, last_ts, index)
-                elif res.status_code == 401 or res.status_code == 403: 
-                    self.refresh_access_token()
-                    self.get_all_stream_metadata()
-                else: 
-                    logging.error(f"failed! \nResponse Code: {res.status_code} \nReason: {res.reason}")
-            except Exception as e:
-                logging.warning(e)
-        else: 
-            logging.error("You have no valid access token! \nPlease login first.")
+        if not self.refresh_token:
+            logging.error("No refresh token available for refreshing access token.")
+            return
 
-    def print_streams(self):
-        if self.streams is not None:
-            for s in self.streams: 
-                logging.info(f"{'Streamname:':<20}{self.streams[s].name} \
-                        \n{'Streamid:':<20}{self.streams[s].id} \
-                        \n{'first ts:':<20}{self.streams[s].first_ts} {dt.datetime.utcfromtimestamp(float(self.streams[s].first_ts)/1000).strftime('%Y-%m-%d %H:%M:%S')} \
-                        \n{'last ts:':<20}{self.streams[s].last_ts} {dt.datetime.utcfromtimestamp(float(self.streams[s].last_ts)/1000).strftime('%Y-%m-%d %H:%M:%S')} \
-                        \n{'Samplerate:':<20}{self.streams[s].sample_rate_hz}\n")
-        else: 
-            logging.info("You have no loaded Streams")
+        # Prepare request
+        refresh_form = {
+            "ClientID": "gibench",
+            "RefreshToken": self.refresh_token,
+        }
+        headers = {"Content-Type": "application/json"}
+        refresh_url = f"{self.url}/rpc/AdminAPI.RefreshToken"
 
-    def get_all_var_metadata(self):
-        """Loads the available meta information from all available variable. The data is stored in data classes and is accessible via the .stream_variabels attribute. 
-        """
-
-        if self.streams is not None: 
-            url_list=self.url+'/__api__/gql'
-            headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
-            self.stream_variabels = {} # reset memory
-            unit_names = []
-            for s in self.streams:
-                query="{\n  variableMapping(sid: \""+ self.streams[s].id +"\") {\n    sid\n    columns {\n      name\n      variables {\n        id\n        dataType\n        name\n        unit\n      }\n    }\n  }\n}"
-                try:
-                    res = requests.post(url_list, json = {'query': query}, headers = headers)
-                    if res.status_code == 200: 
-                        res = res.json()
-                        for i in range(0, len(res['data']['variableMapping']['columns'])):
-                            sid = res['data']['variableMapping']['sid']     
-                            index = res['data']['variableMapping']['columns'][i]['name'] # Var index in GI System - needed for gql queries
-                            name = res['data']['variableMapping']['columns'][i]['variables'][0]['name'] # Var name defined by user
-                            data_type = res['data']['variableMapping']['columns'][i]['variables'][0]['dataType']
-                            id = res['data']['variableMapping']['columns'][i]['variables'][0]['id']
-                            unit = res['data']['variableMapping']['columns'][i]['variables'][0]['unit']
-
-                            # create Enum for filtering units
-                            if unit not in unit_names and unit != "": 
-                                unit_names.append(unit)
-                            # Create unique variable name /with stream
-                            # TODO - if multiple variables with same name exists (in one stream) the name will be overwritten
-                            self.stream_variabels[f"{s}__{name}"] = GIStreamVariable(id, name, index, unit, data_type, sid)
-                    elif res.status_code == 401 or res.status_code == 403: 
-                        self.refresh_access_token()
-                        self.get_all_var_metadata()
-                    else: 
-                        logging.error(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
-                except Exception as e:
-                    logging.warning(e)
-            # create Enum for available units
-            self.units = Enum('Units', list(unit_names))
-        else: 
-            logging.info("You have no loaded Streams. \nPlease load first Streams.")
-
-    def variable_info(self):
-        '''use this endpoint to read information for all available online variables'''
-        url_list = self.url + '/online/structure/variables'
-        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        # Send request
         try:
-            res = requests.get(url_list, headers = headers)
-            if res.status_code == 200: 
-                res = res.json()
-                ## TODO continue here
-            else: 
-                logging.error(f"Fetching variable info failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
-        except Exception as e:
-            logging.warning(e)
-            
-    def find_var(self, var_name: str): 
-        """Searches the existing variables. 
+            res = requests.post(refresh_url, json=refresh_form, headers=headers)
+            if res.status_code == 200:
+                response_data = res.json()
+                self.login_token = {
+                    "access_token": response_data.get("AccessToken"),
+                    "refresh_token": response_data.get("RefreshToken", self.refresh_token),
+                }
+                logging.info("Access token refreshed successfully.")
+            else:
+                logging.error(
+                    f"Failed to refresh access token. Response Code: "
+                    f"{res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as e:
+            logging.warning(f"Request error while refreshing access token: {e}")
 
-        Args:
-            var_name (str): Var_name or Substring
+    from typing import Optional, Dict
+
+    def get_all_stream_metadata(self) -> Dict[str, GIStream] | None:
+        """
+        Loads the available meta information from all available streams.
+        The data is stored in data classes (GIStream)
+         and is accessible via the .streams attribute.
 
         Returns:
-            Dict ([str,GIStreamVariable]): List of variables found
+            A dictionary of stream metadata if successful, otherwise None.
         """
+        if not self.login_token:
+            logging.error("You have no valid access token! Please login first.")
+            return None
 
-        if type(var_name) == list: 
-            match = []  
-            for k in self.stream_variabels.keys():
-                for vr in var_name: #TODO Aviod Big O notation
-                    if vr in k: 
-                        match.append(k)
-        else: 
-            match = [x for x in self.stream_variabels.keys() if var_name in x]
+        # Prepare request
+        url_list = f"{self.url}/kafka/structure/sources"
+        # Send request
+        try:
+            res = requests.get(url_list, headers=self.headers)
+            if res.status_code == 200:
+                response_data = res.json()
+                self.streams = {}  # Reset memory
+                for stream in response_data["Data"]:
+                    name = stream["Name"]
+                    stream_id = stream["Id"]
+                    sample_rate_hz = stream["SampleRateHz"]
+                    first_ts = stream["AbsoluteStart"]
+                    last_ts = stream["LastTimeStamp"]
+                    index = stream["Index"]
+                    # Store data in dict with dataclass
+                    self.streams[name] = GIStream(
+                        name,
+                        stream_id,
+                        sample_rate_hz,
+                        first_ts,
+                        last_ts,
+                        index,
+                    )
+                return self.streams
+            elif res.status_code in {401, 403}:
+                self.refresh_access_token()
+                res = requests.get(url_list, headers=self.headers)
+                if res.status_code == 200:
+                    return self.get_all_stream_metadata()
+                else:
+                    logging.error(f"Failed after token refresh! Code: {res.status_code}")
+            else:
+                logging.error(f"Failed! Code: {res.status_code}, Reason: {res.reason}")
+        except requests.RequestException as e:
+            logging.warning(f"Request error while fetching stream metadata: {e}")
 
-        if len(match) == 0 and match is not None: 
-            logging.info("No var found.")
-        else:
-            result = {}  
-            for m in match:
-                result[m] = (self.stream_variabels[m])
-            return result
         return None
 
-    def filter_var_attr(self, attr: str, value: str): 
+    def print_streams(self) -> None:
         """
-        Search for stream_variables with a certain attribute
-
-        Args:
-            attr (str): e.g. unit
-            value (str): e.g. C°
-
-        Returns:
-            dataclass (obj): List of variables found
+        Prints the available streams' metadata.
         """
+        if not self.streams:
+            logging.info("You have no loaded streams.")
+            return
 
-        if self.stream_variabels is not None: 
-            match = [x for x in self.stream_variabels.values() if getattr(x, attr, "") == value]
-            return match
-        return None
-    
-    def _build_sensorid_querystring(self, indices:List, aggregations=None):
-        #TODO - enable multiple aggregations
-        agg = """
-                avg
+        for stream in self.streams.values():
+            first_ts_str = dt.datetime.utcfromtimestamp(float(stream.first_ts) / 1000).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            last_ts_str = dt.datetime.utcfromtimestamp(float(stream.last_ts) / 1000).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+
+            logging.info(
+                f"{'Streamname:':<20}{stream.name}\n"
+                f"{'Streamid:':<20}{stream.id}\n"
+                f"{'first ts:':<20}{stream.first_ts} {first_ts_str}\n"
+                f"{'last ts:':<20}{stream.last_ts} {last_ts_str}\n"
+                f"{'Samplerate:':<20}{stream.sample_rate_hz}\n"
+            )
+
+    def get_all_var_metadata(self) -> None:
         """
-        s = ""
-        for i in indices:
-            s = s+f"""
-                {i} {{
-                    {agg}
+        Loads the available meta information from all available variables.
+        The data is stored in data classes
+        and is accessible via the .stream_variabels attribute.
+        """
+        if not self.streams:
+            logging.info("You have no loaded streams. Please load streams first.")
+            return
+
+        # Prepare request
+        url_list = f"{self.url}/__api__/gql"
+        assert self.login_token, "No valid access token. Please log in first."
+        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
+        self.stream_variabels = {}  # Reset memory
+        unit_names = set()  # Use a set to avoid duplicate units
+
+        for stream_name, stream in self.streams.items():
+            query = f"""
+            {{
+                variableMapping(sid: "{stream.id}") {{
+                    sid
+                    columns {{
+                        name
+                        variables {{
+                            id
+                            dataType
+                            name
+                            unit
+                        }}
+                    }}
                 }}
+            }}
             """
-        return s
 
-    def get_var_data_batched(self, sid: str, index_list: List, start_date: str, end_date: str,
-                             resolution: str = 'nanos',
-                             custom_column_names: list = [], timezone: str = 'UTC', max_points: int = 700_000):
+            try:
+                res = requests.post(url_list, json={"query": query}, headers=headers)
+                if res.status_code == 200:
+                    response_data = res.json()
+                    columns = response_data["data"]["variableMapping"]["columns"]
+                    sid = response_data["data"]["variableMapping"]["sid"]
+
+                    for column in columns:
+                        index = column["name"]  # Var index in GI System
+                        variable = column["variables"][0]  # Assuming there's always one variable
+                        name = variable["name"]
+                        data_type = variable["dataType"]
+                        variable_id = variable["id"]
+                        unit = variable["unit"]
+
+                        # Add unit to set if not empty
+                        if unit:
+                            unit_names.add(unit)
+
+                        # Create unique variable name
+                        self.stream_variabels[f"{stream_name}__{name}"] = GIStreamVariable(
+                            variable_id, name, index, unit, data_type, sid
+                        )
+                elif res.status_code in {401, 403}:
+                    self.refresh_access_token()
+                    # Retry once after refreshing the token
+                    res = requests.post(url_list, json={"query": query}, headers=headers)
+                    if res.status_code != 200:
+                        logging.error(
+                            f"Fetching variable info failed after token refresh!"
+                            f" Code: {res.status_code}"
+                        )
+                else:
+                    logging.error(
+                        f"Fetching variable info failed! "
+                        f"Code: {res.status_code}, Reason: {res.reason}"
+                    )
+            except requests.RequestException as e:
+                logging.warning(f"Request error while fetching variable metadata: {e}")
+
+        # Create Enum for available units
+        self.units = cast(Type[Enum], Enum("Units", {unit: unit for unit in unit_names}))
+
+    def variable_info(self) -> Any | None:
+        """
+        Use this endpoint to read information for all available online variables.
+
+        Returns:
+            The parsed JSON response if successful, otherwise None.
+        """
+        if not self.login_token:
+            logging.error("No valid access token. Please log in first.")
+            return None
+
+        # Prepare request
+        url_list = f"{self.url}/online/structure/variables"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.login_token['access_token']}",
+        }
+
+        # Send request
+        try:
+            res = requests.get(url_list, headers=headers)
+            if res.status_code == 200:
+                response_data = res.json()
+                # TODO: Implement processing of response_data here if needed
+                return response_data
+            else:
+                logging.error(
+                    f"Fetching variable info failed!"
+                    f" Response Code: {res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as e:
+            logging.warning(f"Request error while fetching variable info: {e}")
+
+        return None
+
+    def find_var(self, var_name: Union[str, list[str]]) -> Dict[str, GIStreamVariable] | None:
+        """
+        Searches the existing variables.
+
+        Args:
+            var_name (Union[str, list[str]]): Variable name or a list of substrings.
+
+        Returns:
+            Optional[Dict[str, GIStreamVariable]]: Dictionary of found variables
+            or None if no matches.
+        """
+        if not self.stream_variabels:
+            logging.info("No variables are available to search.")
+            return None
+
+        # Search logic
+        if isinstance(var_name, list):
+            var_name_set = set(var_name)  # Use set for faster lookup
+            match = [k for k in self.stream_variabels.keys() if any(vr in k for vr in var_name_set)]
+        else:
+            match = [k for k in self.stream_variabels.keys() if var_name in k]
+
+        if not match:
+            logging.info("No variable found.")
+            return None
+
+        # Create the result dictionary for matching variables
+        result = {m: self.stream_variabels[m] for m in match}
+        return result
+
+    def filter_var_attr(self, attr: str, value: str) -> List[GIStreamVariable] | None:
+        """
+        Search for stream_variables with a certain attribute.
+
+        Args:
+            attr (str): The attribute to filter by (e.g., "unit").
+            value (str): The value to match for the specified attribute (e.g., "C°").
+
+        Returns:
+            Optional[List[GIStreamVariable]]: A list of matching variables,
+             or None if no matches found.
+        """
+        if not self.stream_variabels:
+            logging.info("No stream variables available to filter.")
+            return None
+
+        # Filtering based on the attribute and value
+        match = [var for var in self.stream_variabels.values() if getattr(var, attr, "") == value]
+
+        return match if match else None
+
+    @staticmethod
+    def _build_sensorid_querystring(
+        indices: List[str], aggregations: List[str] | None = None
+    ) -> str:
+        """
+        Builds a query string for the sensor IDs with optional aggregations.
+
+        Args:
+            indices (List[str]): A list of sensor indices.
+            aggregations (Optional[List[str]]): A list of aggregations to apply.
+            Defaults to ["avg"] if not provided.
+
+        Returns:
+            str: The constructed query string.
+        """
+        # Default aggregation to "avg" if none are provided
+        if not aggregations:
+            aggregations = ["avg"]
+
+        # Create the aggregation string
+        agg_str = " ".join(aggregations)
+
+        # Build the query string for each index
+        query_parts = [
+            f"""
+            {i} {{
+                {agg_str}
+            }}
+            """
+            for i in indices
+        ]
+
+        return "\n".join(query_parts)
+
+    def get_var_data_batched(
+        self,
+        sid: str,
+        index_list: List,
+        start_date: str,
+        end_date: str,
+        resolution: str = "nanos",
+        custom_column_names: list = [],
+        timezone: str = "UTC",
+        max_points: int = 700_000,
+    ):
         """BETA: This makes batched calls to GraphQL. Not recommended.
         This is still about 2x slower than get_data_as_csv() since we make more http requests"""
         tss, tse = map(self.convert_datetime_to_unix, [start_date, end_date])
@@ -363,13 +554,30 @@ class CloudRequest():
             num_batches = (total_points // max_points) + 1
             timestamps = np.linspace(tss, tse, num_batches + 1, dtype=int)
             logging.info(f"Total points: {total_points}, Num batches: {num_batches}")
-            return pd.concat([self.get_var_data_batch(sid, index_list, timestamps[i], timestamps[i + 1], resolution,
-                                                      custom_column_names, timezone) for i in
-                              range(num_batches)]).reset_index(drop=True)
-        return self.get_var_data_batch(sid, index_list, tss, tse, resolution, custom_column_names, timezone)
+            return pd.concat(
+                [
+                    self.get_var_data_batch(
+                        sid,
+                        index_list,
+                        timestamps[i],
+                        timestamps[i + 1],
+                        resolution,
+                        custom_column_names,
+                        timezone,
+                    )
+                    for i in range(num_batches)
+                ]
+            ).reset_index(drop=True)
+        return self.get_var_data_batch(
+            sid, index_list, tss, tse, resolution, custom_column_names, timezone
+        )
 
-    def get_var_data_batch(self, sid, index_list, tss, tse, resolution, custom_column_names, timezone):
-        selected_index_string = ",".join([f"\"{index}\"" for index in index_list]) if index_list else ""
+    def get_var_data_batch(
+        self, sid, index_list, tss, tse, resolution, custom_column_names, timezone
+    ):
+        selected_index_string = (
+            ",".join([f'"{index}"' for index in index_list]) if index_list else ""
+        )
         if not selected_index_string:
             logging.info("No variable selected")
             return None
@@ -393,25 +601,31 @@ class CloudRequest():
             return None
 
         requested_data = res.json()
-        if resolution == 'nanos':
-            data_matrix = requested_data['data']['Raw']['data']
+        if resolution == "nanos":
+            data_matrix = requested_data["data"]["Raw"]["data"]
         else:
-            data_matrix = np.column_stack(([requested_data['data']['analytics']['ts']] +
-                                           [requested_data['data']['analytics'][idx]['avg'] for idx in index_list]))
+            data_matrix = np.column_stack(
+                (
+                    [requested_data["data"]["analytics"]["ts"]]
+                    + [requested_data["data"]["analytics"][idx]["avg"] for idx in index_list]
+                )
+            )
 
         data_matrix = np.array(data_matrix, dtype=float)
         valid_data = data_matrix[~np.isnan(data_matrix).any(axis=1)]
 
-        columns = custom_column_names if custom_column_names else self.__get_column_names(sid, index_list)
+        columns = (
+            custom_column_names if custom_column_names else self.__get_column_names(sid, index_list)
+        )
         df = pd.DataFrame(valid_data, columns=columns)
-        df['Time'] = pd.to_datetime(df['Time'], unit='ms')
+        df["Time"] = pd.to_datetime(df["Time"], unit="ms")
         self.__convert_df_time_from_utc_to_tz(df, timezone)
         return df
 
     def _execute_gql_request(self, query):
         url = f"{self.url}/__api__/gql"
-        headers = {'Authorization': f"Bearer {self.login_token['access_token']}"}
-        res = requests.post(url, json={'query': query}, headers=headers)
+        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
+        res = requests.post(url, json={"query": query}, headers=headers)
 
         if res.status_code == 200 and "errors" not in res.text:
             return res
@@ -422,45 +636,51 @@ class CloudRequest():
         logging.error(f"Request failed with code {res.status_code}: {res.text}")
         return None
 
-    def get_var_data(self, sid:str, index_list:List, start_date:str, end_date:str, resolution:str = 'nanos', custom_column_names:list = [], timezone:str = 'UTC'):
-        """Returns a np.matrix of data and pandas df with timestamps and values directly from a data stream
+    def get_var_data(
+        self,
+        sid: str,
+        index_list: List[str],
+        start_date: str,
+        end_date: str,
+        resolution: str = "nanos",
+        custom_column_names: List[str] | None = None,
+        timezone: str = "UTC",
+    ) -> pd.DataFrame | None:
+        """
+        Returns a pandas DataFrame with timestamps and values directly from a data stream.
 
         Args:
-            sid (str): stream_id
-            index_list (list[str]): channel_index e.g. ["a10", "a11"]
-            start_date (str): format: YYYY-MM-DD HH:MM:SS
-            end_date (str): format: YYYY-MM-DD HH:MM:SS
-            resolution (str, optional): 'MONTH','WEEK','DAY','HOUR','QUARTER_HOUR','MINUTE','SECOND','HZ10','HZ100','KHZ','KHZ10','nanos'
-                The available resolutions are accessible via the attribute ".resolutions". 
-                Do not forget at the end the .values  Defaults to 'nanos'.
-            custom_column_names (list[str]): 'use custom names for the df columns: ["Time", "your_col_name_1", "your_col_name_2", ...]'
+            sid (str): Stream ID.
+            index_list (List[str]): List of channel indices (e.g., ["a10", "a11"]).
+            start_date (str): Start date in format "YYYY-MM-DD HH:MM:SS".
+            end_date (str): End date in format "YYYY-MM-DD HH:MM:SS".
+            resolution (str, optional): Data resolution. Defaults to "nanos".
+            custom_column_names (Optional[List[str]], optional):
+            Custom column names for the DataFrame.
+            timezone (str, optional): Timezone for the data. Defaults to "UTC".
 
         Returns:
-            pandas.df: dataframe
+            Optional[pd.DataFrame]: DataFrame containing the requested data,
+            or None if the request failed.
         """
-
         tss = str(self.convert_datetime_to_unix(start_date))
         tse = str(self.convert_datetime_to_unix(end_date))
 
-        selected_index_string="" 
-        if resolution=='nanos' and len(index_list) > 0: # nanos == raw data
-            for j in range(0,len(index_list)): # concat var_index for query
-                selected_index_string = selected_index_string + "\"" + index_list[j] + "\"" + " ,"
-            # build query 
-
-            self.query = f'''{{
-              Raw(columns: ["ts", "nanos", {selected_index_string}], 
-              sid: "{sid}",
-              from: {tss},
-              to: {tse}) {{
-                data
-              }}
-            }}'''
-
-
-        elif len(index_list) > 0:
+        # Build the query
+        if resolution == "nanos" and index_list:
+            selected_index_string = ", ".join(f'"{idx}"' for idx in index_list)
+            self.query = f"""
+            {{
+                Raw(columns: ["ts", "nanos", {selected_index_string}],
+                sid: "{sid}",
+                from: {tss},
+                to: {tse}) {{
+                    data
+                }}
+            }}
+            """
+        elif index_list:
             selected_index_string = self._build_sensorid_querystring(index_list)
-
             self.query = f"""
             {{
                 analytics(
@@ -473,92 +693,111 @@ class CloudRequest():
                     {selected_index_string}
                 }}
             }}
-        """
+            """
         else:
-            logging.info("no variable selected")
+            logging.info("No variable selected")
+            return None
 
-        url_list = self.url+'/__api__/gql'
-        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
+        # Send the request
+        url_list = f"{self.url}/__api__/gql"
         try:
-            res = requests.post(url_list, json={'query':self.query}, headers = headers)
-            if res.status_code == 200 and not "errors" in res.text: 
+            res = requests.post(url_list, json={"query": self.query}, headers=self.headers)
+            if res.status_code == 200 and "errors" not in res.text:
                 requested_data = res.json()
 
-                ### Filter Data out of request
-                if resolution=='nanos':
-                    data_matrix=requested_data['data']['Raw']['data']
-                    self.data=np.array(data_matrix)
+                # Filter data out of the request
+                if resolution == "nanos":
+                    data_matrix = requested_data["data"]["Raw"]["data"]
+                    self.data = np.array(data_matrix, dtype=float)
                 else:
-                    self.data=np.zeros((len(requested_data['data']['analytics']['ts']),len(index_list)+1))
-                    self.data[:,0]=requested_data['data']['analytics']['ts']
-                    for k in range(0,len(index_list)):
-                        self.data[:,k+1]=requested_data['data']['analytics'][index_list[k]]['avg']
-                
-                ### create numpy matrix 
-                self.data=self.data.astype(float)
-                nonecheck=np.isnan(self.data[:,:])
-                none_index=np.where(nonecheck == True)
+                    self.data = np.zeros(
+                        (
+                            len(requested_data["data"]["analytics"]["ts"]),
+                            len(index_list) + 1,
+                        )
+                    )
+                    self.data[:, 0] = requested_data["data"]["analytics"]["ts"]
+                    for k, idx in enumerate(index_list):
+                        self.data[:, k + 1] = requested_data["data"]["analytics"][idx]["avg"]
 
-                #none number can be at the begining or at the end.
-                if len(none_index[0])>0:
-                    first_none=none_index[0][0]
-                    last_none=none_index[0][-1]
-                    if last_none==len(self.data)-1:
-                        self.data=self.data[0:first_none-1,:]
-                    else:    
-                        self.data=self.data[last_none+1:-1,:]
+                # Clean the data by removing leading/trailing NaNs
+                valid_rows = ~np.isnan(self.data).any(axis=1)
+                self.data = self.data[valid_rows]
 
-                ### create pandas df
-                if len(custom_column_names) == 0: # add option for custom names
-                    df = pd.DataFrame(self.data, columns=self.__get_column_names(sid, index_list))
-                else: 
-                    df = pd.DataFrame(self.data, columns=custom_column_names)
+                # Create the DataFrame
+                column_names = custom_column_names or self.__get_column_names(sid, index_list)
+                self.df = pd.DataFrame(self.data, columns=column_names)
 
-                df['Time'] = pd.to_datetime(df['Time'], unit='ms')
-                self.__convert_df_time_from_utc_to_tz(df, timezone)
-                
-                return df
-            elif res.status_code == 401 or res.status_code == 403:
+                # Convert time column to datetime and adjust timezone
+                self.df["Time"] = pd.to_datetime(self.df["Time"], unit="ms")
+                self.__convert_df_time_from_utc_to_tz(timezone)
+
+                return self.df
+            elif res.status_code in {401, 403}:
                 logging.info("Token expired. Renewing...")
                 self.refresh_access_token()
-                return self.get_var_data(sid, index_list, start_date, end_date, resolution)
-            # Show error Message from Server
-            else: 
-                error = json.loads(res.text)
-                logging.error(f"Fetching Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
-        except Exception as e:
-            logging.warning(e)
+                # Retry once after refreshing the token
+                return self.get_var_data(
+                    sid,
+                    index_list,
+                    start_date,
+                    end_date,
+                    resolution,
+                    custom_column_names,
+                    timezone,
+                )
+            else:
+                error = res.json().get("errors", [{}])[0].get("message", "Unknown error")
+                logging.error(
+                    f"Fetching data failed!"
+                    f"Response Code: {res.status_code}, Reason: {res.reason}, Msg: {error}"
+                )
+        except requests.RequestException as e:
+            logging.warning(f"Request error while fetching variable data: {e}")
 
-    def get_data_np(self, sid:str, index_list:List, tss:str, tse:str, resolution:str = 'nanos'):
-        """Returns a numpy matrix of data with timestamps and values directly from a data stream
-    
+        return None
+
+    def get_data_np(
+        self,
+        sid: str,
+        index_list: List[str],
+        tss: str,
+        tse: str,
+        resolution: str = "nanos",
+    ) -> np.ndarray | None:
+        """
+        Returns a numpy matrix of data with timestamps and values directly from a data stream.
+
         Args:
-            sid (str): stream_id
-            index_list (list[str]): channel_index e.g. ["a10", "a11"]
-            tss (str): start timestamp
-            tse (str): end timestamp
-            resolution (str, optional): 'MONTH','WEEK','DAY','HOUR','QUARTER_HOUR','MINUTE','SECOND','HZ10','HZ100','KHZ','KHZ10','nanos'
-                The available resolutions are accessible via the attribute ".resolutions". 
-                Do not forget at the end the .values  Defaults to 'nanos'.
+            sid (str): Stream ID.
+            index_list (List[str]): List of channel indices (e.g., ["a10", "a11"]).
+            tss (str): Start timestamp.
+            tse (str): End timestamp.
+            resolution (str, optional): Data resolution. Defaults to "nanos".
 
         Returns:
-            np.array(data_matrix): numpy matrix
+            Optional[np.ndarray]: Numpy matrix containing the requested data,
+             or None if the request failed.
         """
+        if not index_list:
+            logging.info("No variable selected.")
+            return None
 
-        selected_index_string="" 
-        if resolution=='nanos' and len(index_list) > 0: # nanos == raw data
-            for j in range(0,len(index_list)): # concat var_index for query
-                selected_index_string = selected_index_string + "\"" + index_list[j] + "\"" + " ,"
-            # build query 
-            
-            self.query ="{\n  Raw(columns: [\"ts\", \"nanos\"," + selected_index_string + "], \
-                sid: \"" + sid + "\",\
-                from: " + tss + ",\
-                to: " + tse + ") {\n    data\n  }\n}\n"             
-        
-        elif len(index_list) > 0:
+        # Build the query
+        if resolution == "nanos":
+            selected_index_string = ", ".join(f'"{idx}"' for idx in index_list)
+            self.query = f"""
+            {{
+                Raw(columns: ["ts", "nanos", {selected_index_string}],
+                sid: "{sid}",
+                from: {tss},
+                to: {tse}) {{
+                    data
+                }}
+            }}
+            """
+        else:
             selected_index_string = self._build_sensorid_querystring(index_list)
-
             self.query = f"""
             {{
                 analytics(
@@ -571,598 +810,827 @@ class CloudRequest():
                     {selected_index_string}
                 }}
             }}
-        """
-        else:
-            logging.info("no variable selected")
+            """
 
-        url_list = self.url+'/__api__/gql'
-        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
+        # Send the request
+        url_list = f"{self.url}/__api__/gql"
         try:
-            res = requests.post(url_list, json={'query':self.query}, headers = headers)
-            if res.status_code == 200 and not "errors" in res.text: 
+            res = requests.post(url_list, json={"query": self.query}, headers=self.headers)
+            if res.status_code == 200 and "errors" not in res.text:
                 requested_data = res.json()
 
-                ### Filter Data out of request
-                if resolution=='nanos':
-                    data_matrix=requested_data['data']['Raw']['data']
-                    self.data=np.array(data_matrix)
+                # Filter data out of the request
+                if resolution == "nanos":
+                    data_matrix = requested_data["data"]["Raw"]["data"]
+                    self.data = np.array(data_matrix, dtype=float)
                 else:
-                    self.data=np.zeros((len(requested_data['data']['analytics']['ts']),len(index_list)+1))
-                    self.data[:,0]=requested_data['data']['analytics']['ts']
-                    for k in range(0,len(index_list)):
-                        self.data[:,k+1]=requested_data['data']['analytics'][index_list[k]]['avg']
-                
-                ### create numpy matrix 
-                self.data=self.data.astype(float)
-                nonecheck=np.isnan(self.data[:,:])
-                none_index=np.where(nonecheck == True)
+                    ts_data = requested_data["data"]["analytics"]["ts"]
+                    self.data = np.zeros((len(ts_data), len(index_list) + 1), dtype=float)
+                    self.data[:, 0] = ts_data
+                    for k, idx in enumerate(index_list):
+                        self.data[:, k + 1] = requested_data["data"]["analytics"][idx]["avg"]
 
-                #none number can be at the begining or at the end.
-                if len(none_index[0])>0:
-                    first_none=none_index[0][0]
-                    last_none=none_index[0][-1]
-                    if last_none==len(self.data)-1:
-                        self.data=self.data[0:first_none-1,:]
-                    else:    
-                        self.data=self.data[last_none+1:-1,:]
+                # Clean the data by removing leading/trailing NaNs
+                valid_rows = ~np.isnan(self.data).any(axis=1)
+                self.data = self.data[valid_rows]
 
                 return self.data
-            elif res.status_code == 401 or res.status_code == 403:
+            elif res.status_code in {401, 403}:
                 logging.info("Token expired. Renewing...")
                 self.refresh_access_token()
-                return self.get_var_data(sid, index_list, start_date, end_date, resolution)
-            # Show error Message from Server
-            else: 
-                error = json.loads(res.text)
-                logging.error(f"Fetching Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
-        except Exception as e:
-            logging.warning(e)
+                # Retry once after refreshing the token
+                return self.get_data_np(sid, index_list, tss, tse, resolution)
+            else:
+                error = res.json().get("errors", [{}])[0].get("message", "Unknown error")
+                logging.error(
+                    f"Fetching data failed!"
+                    f" Response Code: {res.status_code}, Reason: {res.reason}, Msg: {error}"
+                )
+        except requests.RequestException as e:
+            logging.warning(f"Request error while fetching data: {e}")
 
-    
-    def _get_stream_name_for_sid_vid(self, sid:str, vid:str):
-        if self.stream_variabels != None:
-            stream = [k for k, v in self.stream_variabels.items() if (v.sid == sid and v.id == vid)]
+        return None
+
+    def _get_stream_name_for_sid_vid(self, sid: str, vid: str) -> str | None:
+        """
+        Retrieves the stream name for a given stream ID (sid) and variable ID (vid).
+
+        Args:
+            sid (str): Stream ID.
+            vid (str): Variable ID.
+
+        Returns:
+            Optional[str]: The stream name if found, otherwise None.
+        """
+        if self.stream_variabels is not None:
+            stream = [k for k, v in self.stream_variabels.items() if v.sid == sid and v.id == vid]
             if len(stream) == 1:
-                return stream[0].split('__')[0]
-        else: 
-            logging.info("no stream_variables available")
-            return None
-        
-    def _get_stream_name_for_sid(self, sid:str):
-        if self.stream_variabels != None:
-            stream = [stream_name for stream_name,gi_stream in self.streams.items() if gi_stream.id == sid]
+                return stream[0].split("__")[0]
+
+        logging.info("No stream variables available or matching stream not found.")
+        return None
+
+    def _get_stream_name_for_sid(self, sid: str) -> str | None:
+        """
+        Retrieves the stream name for a given stream ID (sid).
+
+        Args:
+            sid (str): Stream ID.
+
+        Returns:
+            Optional[str]: The stream name if found, otherwise None.
+        """
+        if self.stream_variabels is not None and self.streams is not None:
+            stream = [
+                stream_name
+                for stream_name, gi_stream in self.streams.items()
+                if gi_stream.id == sid
+            ]
             if len(stream) == 1:
                 return stream[0]
-        else: 
-            logging.info("no stream_variables available")
-            return None
-    
-    def get_all_vars_of_stream(self, sid:str):
-        if self.stream_variabels != None:
-            variables = [v for v in self.stream_variabels.values() if v.sid == sid]
-            return variables
-        else: 
-            logging.info("no stream_variables available")
-            return None
-        
-    def get_data_as_csv(self, variables: List[GIStreamVariable], resolution: str, start: str, end: str, filepath: str='', streaming: bool = True, return_df: bool= True, write_file: bool= True,decimal_sep: str='.', delimiter: str=';', timezone: str='UTC', aggregation: str='avg'):
-        """Returns a csv file with the data of a given list of variables
+
+        logging.info("No stream variables available or matching stream not found.")
+        return None
+
+    def get_all_vars_of_stream(self, sid: str) -> List[GIStreamVariable]:
         """
-        # columns: field: "stream_id:sensorid" or sensorid
-        # headers: ["temperature", "C"]
-        
-        substring = ''
-        filename = ''
+        Retrieves all variables associated with a given stream ID (sid).
+
+        Args:
+            sid (str): Stream ID.
+
+        Returns:
+            List[GIStreamVariable]: A list of variables for the given stream ID.
+        """
+        if self.stream_variabels is not None:
+            return [v for v in self.stream_variabels.values() if v.sid == sid]
+
+        logging.info("No stream variables available.")
+        return []
+
+    def get_data_as_csv(
+        self,
+        variables: List[GIStreamVariable],
+        resolution: str,
+        start: str,
+        end: str,
+        filepath: str = "",
+        streaming: bool = True,
+        return_df: bool = True,
+        write_file: bool = True,
+        decimal_sep: str = ".",
+        delimiter: str = ";",
+        timezone: str = "UTC",
+        aggregation: str = "avg",
+    ) -> pd.DataFrame | None:
+        """
+        Returns a CSV file with the data of a given list of variables.
+
+        Args:
+            variables (List[GIStreamVariable]): List of variables to include in the export.
+            resolution (str): Data resolution.
+            start (str): Start date in "YYYY-MM-DD HH:MM:SS" format.
+            end (str): End date in "YYYY-MM-DD HH:MM:SS" format.
+            filepath (str, optional): Path to save the file. Defaults to "".
+            streaming (bool, optional): Whether to stream the response. Defaults to True.
+            return_df (bool, optional): Whether to return a DataFrame. Defaults to True.
+            write_file (bool, optional): Whether to write the file to disk. Defaults to True.
+            decimal_sep (str, optional): Decimal separator for the CSV. Defaults to ".".
+            delimiter (str, optional): Field delimiter for the CSV. Defaults to ";".
+            timezone (str, optional): Timezone for the export. Defaults to "UTC".
+            aggregation (str, optional): Aggregation type. Defaults to "avg".
+
+        Returns:
+            Optional[pd.DataFrame]: The data as a pandas DataFrame if return_df is True,
+            otherwise None.
+        """
+        # Build query and filename
+        substring = ""
         streams = set()
         for var in variables:
             stream = self._get_stream_name_for_sid_vid(var.sid, var.id)
             streams.add(stream)
-            s = f"""{{field: "{var.sid}:{var.index}.{aggregation}", 
-            headers: ["{var.name}","{stream}","{aggregation}", "{var.unit or ""}"]}},"""
-            substring += s
-            
-        filename += '_'.join(streams) + '_' + start + '_' + end + '_' + resolution + '_' + aggregation + '.csv'
-        start = str(self.convert_datetime_to_unix(start))
-        end = str(self.convert_datetime_to_unix(end))
+            substring += f"""{{
+                field: "{var.sid}:{var.index}.{aggregation}",
+                headers: ["{var.name}", "{stream}", "{aggregation}", "{var.unit or ''}"]
+            }},"""
+
+        filename = f"{'_'.join(filter(None, streams))}_{start}_{end}_{resolution}_{aggregation}.csv"
+        start_unix = str(self.convert_datetime_to_unix(start))
+        end_unix = str(self.convert_datetime_to_unix(end))
         self.query = f"""
-            {{
-                exportCSV(
-                    resolution: {resolution}
-                    from: {start},
-                    to: {end},
-                    timezone: "{timezone}",
-                    filename: "{filename}"
-                    columns: [
-                        {{
-                            field: "ts",
-                            headers: ["datetime"],
-                            dateFormat: "%Y-%m-%dT%H:%M:%S"
-                        }},
-                        {{
-                            field: "ts",
-                            headers: ["time","","","[s since 01.01.1970]"]
-                        }},
-                        {substring}
-                    ]
-                ) {{
-                    file
-                }}
+        {{
+            exportCSV(
+                resolution: {resolution}
+                from: {start_unix},
+                to: {end_unix},
+                timezone: "{timezone}",
+                filename: "{filename}"
+                columns: [
+                    {{
+                        field: "ts",
+                        headers: ["datetime"],
+                        dateFormat: "%Y-%m-%dT%H:%M:%S"
+                    }},
+                    {{
+                        field: "ts",
+                        headers: ["time", "", "", "[s since 01.01.1970]"]
+                    }},
+                    {substring}
+                ]
+            ) {{
+                file
             }}
+        }}
         """
-        url_list = self.url+'/__api__/gql'
-        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
-        res = requests.post(url_list, json={'query':self.query}, headers = headers, stream=streaming)
-        if res.status_code == 200 and not "errors" in res.text: 
-            
-            if write_file:
-                csv_file = open(filepath + filename, 'wb')
-                if stream == False:
-                    content = res.content
-                    csv_file.write(content)
-                    csv_file.close()
-                else:
-                    for chunk in res.iter_content(chunk_size=1024):
-                        csv_file.write(chunk)
-                        csv_file.flush()
-                    if return_df == False:
-                        csv_file.close()
-                        
-            
-            # return as df
-            # TODO set columns to specific dtypes (more performance and pandas dynamic checking is buggy)
-            if return_df == True and stream==False or write_file==False:
-                return pd.read_csv(BytesIO(res.content), delimiter=delimiter)
-            elif return_df == True:
-                return pd.read_csv(filepath + filename, delimiter=delimiter)
-        else:
-            error = json.loads(res.text)
-            logging.error(f"Fetching csv Data failed! \nResponse Code: {res.status_code} \nReason: {res.reason}\nMsg: {error['errors'][0]['message']}")
-            
-    
-    def __get_column_names(self, sid:str, index_list:List): 
+        # Send request
+        url_list = f"{self.url}/__api__/gql"
+        try:
+            res = requests.post(
+                url_list,
+                json={"query": self.query},
+                headers=self.headers,
+                stream=streaming,
+            )
+            if res.status_code == 200 and "errors" not in res.text:
+                if write_file:
+                    with open(f"{filepath}{filename}", "wb") as csv_file:
+                        if not streaming:
+                            csv_file.write(res.content)
+                        else:
+                            for chunk in res.iter_content(chunk_size=1024):
+                                csv_file.write(chunk)
+                                csv_file.flush()
+                        if not return_df:
+                            return None
+
+                # Return as DataFrame
+                if return_df:
+                    if not streaming or not write_file:
+                        return pd.read_csv(
+                            BytesIO(res.content),
+                            delimiter=delimiter,
+                            decimal=decimal_sep,
+                        )
+                    else:
+                        return pd.read_csv(
+                            f"{filepath}{filename}",
+                            delimiter=delimiter,
+                            decimal=decimal_sep,
+                        )
+            else:
+                error_message = res.json().get("errors", [{}])[0].get("message", "Unknown error")
+                logging.error(
+                    f"Fetching CSV data failed!"
+                    f" Response Code: {res.status_code}, Reason: {res.reason}, Msg: {error_message}"
+                )
+        except requests.RequestException as e:
+            logging.warning(f"Request error while fetching CSV data: {e}")
+
+        return None
+
+    def __get_column_names(self, sid: str, index_list: List[str]) -> List[str]:
         """
-        private helper method to get the column names for df
+        Private helper method to get the column names for the DataFrame.
+
         Args:
-            sid (str): Stream Id
-            index_list (list): List of variable indices e.g. "a10"
+            sid (str): Stream ID.
+            index_list (List[str]): List of variable indices (e.g., ["a10"]).
 
         Returns:
-            _type_: _description_
+            List[str]: List of column names for the DataFrame.
         """
         col_names = ["Time"]
         res = self.filter_var_attr("sid", sid)
-        if res != None:
-            for i in index_list: 
+        if res is not None:
+            for i in index_list:
                 for x in res:
                     if x.index == i:
                         col_names.append(x.name)
-            return col_names
-        return None
-
+        return col_names
 
     @staticmethod
-    def convert_datetime_to_unix(datetime_str: str):
+    def convert_datetime_to_unix(datetime_str: str) -> float | None:
+        """
+        Converts a datetime string to a Unix timestamp in milliseconds.
+
+        Args:
+            datetime_str (str): The datetime string in "YYYY-MM-DD HH:MM:SS" format.
+
+        Returns:
+            Optional[float]: The Unix timestamp in milliseconds, or None if conversion fails.
+        """
         try:
-            date_time_obj = dt.datetime.strptime(datetime_str, '%Y-%m-%d %H:%M:%S')
-            timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz('UTC'))
+            date_time_obj = dt.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S")
+            timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz("UTC"))
             timestamp = int(dt.datetime.timestamp(timestamp_utc)) * 1000
             return timestamp
-        except Exception as err:
-            logging.error(f"Error converting timestamp:{dt.datetime.now()}, {err}")
+        except ValueError as err:
+            logging.error(f"Error converting '{datetime_str}' to Unix timestamp: {err}")
+            return None
 
+    def set_timezone(self, timezone: str = "Europe/Vienna") -> None:
+        """
+        Sets the timezone if it is valid.
 
-    def set_timezone(self, timezone:str = 'Europe/Vienna'): 
-        if self.__validate_timezone(timezone): 
+        Args:
+            timezone (str): The timezone to set. Defaults to "Europe/Vienna".
+        """
+        if self.__validate_timezone(timezone):
             self.timezone = timezone
-            print("Now using timezone:", timezone)
+            logging.info(f"Timezone set to: {timezone}")
         else:
-            logging.warning('Timezone do not exist!')
+            logging.warning(f"Invalid timezone: {timezone}")
 
+    @staticmethod
+    def __validate_timezone(timezone: str) -> bool:
+        """
+        Validates if the given timezone is recognized.
 
-    def __validate_timezone(timezone):
+        Args:
+            timezone (str): The timezone string to validate.
+
+        Returns:
+            bool: True if the timezone is valid, False otherwise.
+        """
         try:
             pytz.timezone(timezone)
             return True
         except pytz.UnknownTimeZoneError:
             return False
-    
-    
-    def __convert_df_time_from_utc_to_tz(self, df:pd.DataFrame, timezone:str = 'UTC'):
-        """ Converts the time stamps of the dataframe to the desired time zone. The default time zone is Vienna. The GI.Cloud always delivers the data in UTC.
-            Defaults to 'Europe/Vienna'.
-        """
-        try: 
-            df['Time'] = df['Time'].dt.tz_localize('UTC')
-            df['Time'] = df['Time'].dt.tz_convert(timezone)
-        except TypeError as err:
-            if "Already tz-aware" in str(err):
-                df['Time'] = df['Time'].dt.tz_convert('UTC')
-            else:
-                raise err
-        except Exception as err:
-            logging.error("Error:", dt.datetime.now, err)
 
-    def get_measurement_limit(self, sid:str, limit:int, start_ts:float = 0, end_ts:float = 9999999999999, sort:str = 'DESC'):
+    def __convert_df_time_from_utc_to_tz(self, timezone: str = "UTC") -> None:
         """
-             Fetches the metadata of the last n measurements of a stream,
-             or the measurements between two timestamps.
+        Converts the timestamps of the DataFrame to the desired time zone.
 
         Args:
-            sid (str): Stream Id
-            limit (str):
+            timezone (str): The target time zone. Defaults to "UTC".
+
+        The data is initially in UTC, and the default conversion is to 'UTC'.
+        """
+        try:
+            self.df["Time"] = self.df["Time"].dt.tz_localize("UTC")
+            self.df["Time"] = self.df["Time"].dt.tz_convert(timezone)
+        except (AttributeError, TypeError) as err:
+            logging.error(f"Error converting DataFrame time to timezone '{timezone}': {err}")
+
+    def get_measurement_limit(
+        self,
+        sid: str,
+        limit: int,
+        start_ts: float = 0,
+        end_ts: float = 9999999999999,
+        sort: str = "DESC",
+    ) -> dict | None:
+        """
+        Retrieves measurement periods for a given stream ID (sid) with a specified limit.
+
+        Args:
+            sid (str): Stream ID.
+            limit (int): The maximum number of measurement periods to retrieve.
+            start_ts (float, optional): The start timestamp. Defaults to 0.
+            end_ts (float, optional): The end timestamp. Defaults to 9999999999999.
+            sort (str, optional): The sort order. Defaults to 'DESC'.
+
+        Returns:
+            Optional[dict]: The response JSON if the request is successful, otherwise None.
         """
         query_measurement = f"""
         {{
-            measurementPeriods(sid: "{sid}", from: {start_ts}, to: {end_ts}, limit: {limit}, sort: {sort}) {{
+            measurementPeriods(
+                sid: "{sid}",
+                from: {start_ts},
+                to: {end_ts},
+                limit: {limit},
+                sort: {sort}
+            ) {{
                 minTs
                 maxTs
                 mid
                 sampleRate
             }}
-        }}"""
-        url = f'{self.url}/__api__/gql'
-        headers = {'Authorization': f'Bearer {self.login_token["access_token"]}'}
+        }}
+        """
+        url_list = f"{self.url}/__api__/gql"
 
         try:
-            res = requests.post(url, json={'query': query_measurement}, headers=headers)
-            if res.ok:
+            res = requests.post(url_list, json={"query": query_measurement}, headers=self.headers)
+            if res.status_code == 200:
                 self.request_measurement_res = res.json()
                 return self.request_measurement_res
             else:
-                logging.error(f"Failed! Code: {res.status_code}, Reason: {res.reason}")
-        except Exception as err:
-            logging.warning(err)
+                logging.error(
+                    f"Fetching measurement info failed!"
+                    f" Response Code: {res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as err:
+            logging.warning(f"Request error while fetching measurement info: {err}")
 
+        return None
 
-
-    def get_measurement_periods(self):
+    def print_measurement(self) -> np.ndarray | None:
         """
-        Get a list of measurement periods with start and stop ts.
-        Requires to call get_measurement_limit before.
-        """
-        limit = len(self.request_measurement_res['data']['measurementPeriods'])
-        measurement_list = np.zeros((int(limit),2))
+        Retrieves a list of measurement periods with their start and stop timestamps.
 
-        for l in range(0,int(limit)):
-            measurement_list[l,0] = self.request_measurement_res['data']['measurementPeriods'][l]['minTs']
-            measurement_list[l,1] = self.request_measurement_res['data']['measurementPeriods'][l]['maxTs']
+        Returns:
+            Optional[np.ndarray]: A NumPy array with start and stop timestamps,
+             or None if data is unavailable.
+        """
+        if not self.request_measurement_res or "data" not in self.request_measurement_res:
+            logging.warning("Measurement data is not available.")
+            return None
+
+        periods = self.request_measurement_res["data"].get("measurementPeriods", [])
+        limit = len(periods)
+        measurement_list = np.zeros((limit, 2))
+
+        for measurement_i in range(limit):
+            measurement_list[measurement_i, 0] = periods[measurement_i]["minTs"]
+            measurement_list[measurement_i, 1] = periods[measurement_i]["maxTs"]
 
         return measurement_list
 
-        
-    #### ubdf importer 
-    def create_import_session_udbf(self, sid:str, stream_name:str):
-        """ 
-        method to import udbf file with http API
+    # ubdf importer
+    def create_import_session_udbf(self, sid: str, stream_name: str) -> Union[dict, str] | None:
+        """
+        Creates an import session for a UDBF file using the HTTP API.
 
         Args:
-            sid (str): _description_
-            stream_name (str): _description_
+            sid (str): The source ID for the data import.
+            stream_name (str): The name of the data stream.
 
         Returns:
-            _type_: _description_
+            Optional[Union[dict, str]]: The response JSON if the request is successful,
+            otherwise None.
         """
-
-        url_list = self.url + '/history/data/import'
-        param = {"Type":"udbf",
-                "SourceID": sid ,
-                "SourceName": stream_name ,
-                "MeasID":"",
-                "SessionTimeoutSec":"300",
-                "AddTimeSeries":"false",
-                "SampleRate":"-1",
-                "AutoCreateMetaData":"true"
-                }
-        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        url_list = f"{self.url}/history/data/import"
+        param = {
+            "Type": "udbf",
+            "SourceID": sid,
+            "SourceName": stream_name,
+            "MeasID": "",
+            "SessionTimeoutSec": "300",
+            "AddTimeSeries": "false",
+            "SampleRate": "-1",
+            "AutoCreateMetaData": "true",
+        }
         try:
-            res = requests.post(url_list,headers=headers,json=param)
-            if res.status_code == 200: 
-                self.import_session_res_udbf=res.json()
-            else:   
-                logging.error(f"Creating import session failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
-        except Exception as err:
-            logging.error(f"create_import_session failed:{err}")
-            res="error"
-        return (res)
-    
-    def import_file_udbf(self, file):
-        """method to import udb file with http API
+            res = requests.post(url_list, headers=self.headers, json=param)
+            if res.status_code == 200:
+                self.import_session_res_udbf = res.json()
+                return self.import_session_res_udbf
+            else:
+                logging.error(
+                    f"Creating import session failed!"
+                    f" Response Code: {res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as err:
+            logging.error(f"Failed to create import session: {err}")
+
+        return None
+
+    def import_file_udbf(self, file: bytes) -> requests.Response | None:
+        """
+        Imports a UDBF file using the HTTP API.
 
         Args:
-            file (udbf): GI specific file format 
+            file (bytes): The UDBF file content to be imported.
 
         Returns:
-            http obj:  Server response 
+            Optional[requests.Response]: The server response if the request is successful,
+             otherwise None.
         """
+        if not self.import_session_res_udbf or "Data" not in self.import_session_res_udbf:
+            logging.error("Import session not initialized. Please create an import session first.")
+            return None
 
-        self.session_ID = str(self.import_session_res_udbf['Data']['SessionID'])
-        url_list = self.url +'/history/data/import/' + self.session_ID
-        header_list = {'Content-Type':'application/octet-stream','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        self.session_ID = str(self.import_session_res_udbf["Data"]["SessionID"])
+        url_list = f"{self.url}/history/data/import/{self.session_ID}"
+        header_list = {
+            "Content-Type": "application/octet-stream",
+            "Authorization": f"Bearer {self.login_token['access_token']}",
+        }
         try:
-            res = requests.post(url_list,headers=header_list,data=file)
-            if res.status_code == 200: 
-                logging.info("ubdf succesfully imported")
-            else:   
-                logging.error(f"Import failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
-        except Exception as err:
-            logging.error(f"import udbf failed:{err}")
-            res = "error"
-        return (res)  
-        
-    #### csv importer 
-    def create_import_session_csv(self, stream_ID:str, stream_Name:str, csv_config: CsvConfig, create_meta_data:bool = True, session_timeout:int = 60):
-        """method to import csv file with http API
+            res = requests.post(url_list, headers=header_list, data=file)
+            if res.status_code == 200:
+                logging.info("UDBF file successfully imported.")
+                return res
+            else:
+                logging.error(
+                    f"Import failed! Response Code: {res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as err:
+            logging.error(f"Failed to import UDBF file: {err}")
+
+        return None
+
+    # csv importer
+    def create_import_session_csv(
+        self,
+        stream_ID: str,
+        stream_Name: str,
+        csv_config: CsvConfig,
+        create_meta_data: bool = True,
+        session_timeout: int = 60,
+    ) -> requests.Response | None:
+        """
+        Creates an import session for a CSV file using the HTTP API.
 
         Args:
-            stream_ID (str): stream id
-            stream_Name (str): buffername for new stream
+            stream_ID (str): The stream ID.
+            stream_Name (str): The buffer name for the new stream.
+            csv_config (CsvConfig): Configuration settings for the CSV import.
+            create_meta_data (bool, optional): Whether to automatically create metadata.
+             Defaults to True.
+            session_timeout (int, optional): Session timeout in seconds. Defaults to 60.
 
         Returns:
-            http obj:  Server response 
+            Optional[requests.Response]: The server response if the request is successful,
+            otherwise None.
         """
-        
-        url_list = self.url+'/history/data/import'
-        param = { "Type":"csv",
-                "SourceID":stream_ID,
-                "SourceName":stream_Name,
-                "MeasID":"",
-                "SessionTimeoutSec":str(session_timeout),
-                "AddTimeSeries":"false",
-                "SampleRate":"-1",
-                "AutoCreateMetaData": str(create_meta_data).lower(),
-                "CSVSettings": csv_config.get_config()
-                }
+        url_list = f"{self.url}/history/data/import"
+        param = {
+            "Type": "csv",
+            "SourceID": stream_ID,
+            "SourceName": stream_Name,
+            "MeasID": "",
+            "SessionTimeoutSec": str(session_timeout),
+            "AddTimeSeries": "false",
+            "SampleRate": "-1",
+            "AutoCreateMetaData": str(create_meta_data).lower(),
+            "CSVSettings": csv_config.get_config(),
+        }
 
-        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
         try:
-            print(param)
-            res = requests.post(url_list, headers = headers, json = param)
-            if res.status_code == 200: 
+            logging.debug(f"CSV import parameters: {param}")
+            res = requests.post(url_list, headers=self.headers, json=param)
+            if res.status_code == 200:
                 self.import_session_res_csv = res.json()
-                self.import_session_csv_current = {'stream_id': stream_ID, 'ts': time.time(), 'timeout': session_timeout}
-            else:   
-                logging.err(f"Creating import session failed! \nResponse Code:{res.status_code} \nReason: {res.reason}")
-        except Exception as e:
-            logging.error(f"create_import_session failed:{e}")
-            res = "error"
-        return (res)
+                self.import_session_csv_current = {
+                    "stream_id": stream_ID,
+                    "ts": time.time(),
+                    "timeout": session_timeout,
+                }
+                return res
+            else:
+                logging.error(
+                    f"Creating import session failed! "
+                    f"Response Code: {res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as e:
+            logging.error(f"Failed to create import session: {e}")
 
-    def __import_file_csv(self, file):
-        """method to import csv file with http API
+        return None
+
+    def __import_file_csv(self, file: bytes) -> requests.Response | None:
+        """
+        Imports a CSV file using the HTTP API.
 
         Args:
-            file (csv): csv file for upload
+            file (bytes): The content of the CSV file to be uploaded.
 
         Returns:
-            http obj:  Server response 
+            Optional[requests.Response]: The server response if the request is successful,
+            otherwise None.
         """
+        if not self.import_session_res_csv or "Data" not in self.import_session_res_csv:
+            logging.error("Import session not initialized. Please create an import session first.")
+            return None
 
-        self.session_ID = str(self.import_session_res_csv['Data']['SessionID'])
-        url_list = self.url + '/history/data/import/' + self.session_ID
-        headers = {'Content-Type':'text/csv','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        self.session_ID = str(self.import_session_res_csv["Data"]["SessionID"])
+        url_list = f"{self.url}/history/data/import/{self.session_ID}"
+        headers = {
+            "Content-Type": "text/csv",
+            "Authorization": f"Bearer {self.login_token['access_token']}",
+        }
+
         try:
-            res = requests.post(url_list, headers = headers, data = file)
-        except Exception as e:
-            logging.error("import csv failed ,code:{}".format(res.status_code))
-            res = "error"
-        return (res)
+            res = requests.post(url_list, headers=headers, data=file)
+            if res.status_code == 200:
+                logging.info("CSV file successfully imported.")
+                return res
+            else:
+                logging.error(
+                    f"Import failed! Response Code: {res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as e:
+            logging.error(f"Failed to import CSV file: {e}")
 
-    
-    def upload_csv_file(self, stream_name:str, file_path:str, py_formatter: str = None, csv_config: any = None): 
-        """this method performs preparatory functions for csv import
+        return None
+
+    def upload_csv_file(
+        self,
+        stream_name: str,
+        file_path: str,
+        py_formatter: str | None = None,
+        csv_config: CsvConfig | None = None,
+    ) -> str | None:
+        """
+        Performs preparatory functions for CSV import.
 
         Args:
-            stream_name (str): 
-            file_path (str):
+            stream_name (str): The name of the stream to upload the CSV to.
+            file_path (str): The path of the CSV file to be uploaded.
+            py_formatter (Optional[str], optional): Python-specific date format if
+            different from the backend format.
+            py_formatter is delivered if python parses dates differently than c++ (backend parsing)
+            e.g. py_formatterClmn1 = "%d.%m.%Y %H:%M:%S.%f" for python,
+            while DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F" for API config
+            csv_config (Optional[CsvConfig], optional): Configuration settings for the CSV import.
+
+        Returns:
+            Optional[str]: The stream ID if the upload is successful, otherwise None.
         """
-        #**************************************
-        #    read und check csv file
-        #**************************************
+        # **************************************
+        #    Read and check the CSV file
+        # **************************************
         try:
-            # py_formatter is delivered if python parses dates differently than c++ (backend parsing)
-            # e.g. py_formatterClmn1 = "%d.%m.%Y %H:%M:%S.%f" for python, while DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F" for API config
-            if py_formatter == None:
+            # Use the Python formatter if provided, otherwise use the default from csv_config
+            if py_formatter is None:
                 py_formatterClmn1 = self.csv_config.DateTimeFmtColumn1
-    
-            first_lines = pd.read_csv (file_path, encoding = 'utf-8', nrows = 10, sep = ';') #decofing AINSI files on windows or linux
-            read_date = first_lines.iat[self.csv_config.ValuesStartRowIndex-1, 0] # we read the first measurement line, first coulmn
-            read_date = Helpers.remove_hex_from_string(read_date) # rm cloud exported hex containments
 
-            if (self.csv_config.DateTimeFmtColumn2 == "" and self.csv_config.DateTimeFmtColumn3 == ""):
-                date_time_obj = dt.datetime.strptime(read_date+";",py_formatterClmn1+";"+self.csv_config.DateTimeFmtColumn2)
-            elif self.csv_config.DateTimeFmtColumn2 != "":
-                read_time=first_lines.iat[self.csv_config.ValuesStartRowIndex-1,1]     # we read the first measurement lin, second coulmn 
-                date_time_obj = dt.datetime.strptime(read_date+";"+read_time,py_formatterClmn1+";"+self.csv_config.DateTimeFmtColumn2)
-            
-            #handle timestamp
-            csv_timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz('UTC'))
-            csv_timestamp_local = csv_timestamp_utc.astimezone(tz.gettz('Europe / Paris'))
+            first_lines = pd.read_csv(file_path, encoding="utf-8", nrows=10, sep=";")
+            read_date = first_lines.iat[self.csv_config.ValuesStartRowIndex - 1, 0]
+            read_date = Helpers.remove_hex_from_string(read_date)
+
+            # Parse the date and time based on the configuration
+            if not self.csv_config.DateTimeFmtColumn2 and not self.csv_config.DateTimeFmtColumn3:
+                date_time_obj = dt.datetime.strptime(
+                    read_date + ";",
+                    py_formatterClmn1 + ";" + self.csv_config.DateTimeFmtColumn2,
+                )
+            elif self.csv_config.DateTimeFmtColumn2:
+                read_time = first_lines.iat[self.csv_config.ValuesStartRowIndex - 1, 1]
+                date_time_obj = dt.datetime.strptime(
+                    read_date + ";" + read_time,
+                    py_formatterClmn1 + ";" + self.csv_config.DateTimeFmtColumn2,
+                )
+
+            # Convert to UTC and then to the target timezone
+            csv_timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz("UTC"))
+            csv_timestamp_local = csv_timestamp_utc.astimezone(tz.gettz("Europe/Paris"))
             csv_timestamp = dt.datetime.timestamp(csv_timestamp_local)
-        except (FileNotFoundError) as e:
-            logging.error('File path of csv to import is wrong.')
+        except FileNotFoundError:
+            logging.error(f"File not found: {file_path}")
+            return None
         except Exception as e:
-            logging.error('Could not read the csv - check the config:', e)
-            csv_timestamp=0
-            return
+            logging.error(f"Could not read the CSV file. Please check the configuration: {e}")
+            return None
 
+        # Log the first CSV timestamp
         timestamp_tmp = dt.datetime.fromtimestamp(csv_timestamp)
-        timestamp_tmp.strftime('%Y-%m-%d %H:%M:%S')
-        logging.info(f"First csv timestamp {csv_timestamp,timestamp_tmp.strftime('%d.%m.%Y %H:%M:%S')}")
+        logging.info(
+            f"First CSV timestamp: {csv_timestamp}, {timestamp_tmp.strftime('%d.%m.%Y %H:%M:%S')}"
+        )
 
-
-        #**************************************
-        #    check if stream exists
-        #**************************************
-        if stream_name in self.streams:
+        # **************************************
+        #    Check if stream exists
+        # **************************************
+        if self.streams is not None and stream_name in self.streams:
             write_ID = self.streams[stream_name].id
-            reprise = 1# in this case reprise =1
-            logging.info("Stream already existing in GI.Cloud import will be continued - {}".format(write_ID))
+            reprise = 1
+            logging.info(
+                f"Stream already exists in GI.Cloud. Continuing import for stream ID: {write_ID}"
+            )
         else:
-            write_ID=str(uuid.uuid4())
-            reprise = 0# in this case reprise =1
-            logging.info("Stream not existing in GI.Cloud import will be initialised - {}".format(write_ID))
-            
-        if (utils.is_valid_uuid(write_ID) == False):
-            logging.error(f'uuid is wrong{write_ID}; break')
-            return
-        
-        #**************************************
-        #            check last imported timestamps
-        #**************************************
-        if reprise == 1:
+            write_ID = str(uuid.uuid4())
+            reprise = 0
+            logging.info(
+                f"Stream not found in GI.Cloud. Initializing import for new stream ID: {write_ID}"
+            )
+
+        # Validate UUID
+        if not utils.is_valid_uuid(write_ID):
+            logging.error(f"Invalid UUID: {write_ID}")
+            return None
+
+        # **************************************
+        #    Check last imported timestamps
+        # **************************************
+        if reprise == 1 and self.streams is not None:
             try:
                 last_timestamp = self.streams[stream_name].last_ts
-                timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp/1000)
-                print("last utc imported timestamp: {}".format((last_timestamp/1000),timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')))
-            except:
-                print("probably no stream existing")
+                timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp / 1000)
+                logging.info(
+                    f"Last UTC imported timestamp:"
+                    f" {(last_timestamp / 1000)}, {timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+            except AttributeError:
+                logging.warning("Stream exists but no last timestamp found.")
+                last_timestamp = 0
         else:
             last_timestamp = 0
-            print("stream_empty timestamp:".format(last_timestamp))
+            logging.info(f"Stream is empty. Last timestamp: {last_timestamp}")
 
-        #**************************************
-        #           Upload file
-        #**************************************
-        if csv_config == None: 
-            csv_config = self.csv_config
+        # **************************************
+        #    Upload the file
+        # **************************************
+        csv_config = csv_config or self.csv_config
+
         if csv_timestamp > last_timestamp / 1000:
-            # reuse import session if possible
+            # Reuse import session if possible
             if not self.__import_session_valid(write_ID):
                 self.create_import_session_csv(write_ID, stream_name, csv_config)
-            with open(file_path, 'rb') as f:
-                data_upload = f.read()
 
-            response = self.__import_file_csv(data_upload)
-            #time.sleep(5)
+            try:
+                with open(file_path, "rb") as f:
+                    data_upload = f.read()
 
-            if response.status_code == 200:
-                logging.info(f"import of {file_path} was successful")
-                return write_ID
-            else:   
-                logging.error(f"Import failed! \nResponse Code:{response.status_code} \nReason: {response.reason}")
-                
-            
-            # free up resources 
-            #self.delete_import()
+                response = self.__import_file_csv(data_upload)
+
+                if response and response.status_code == 200:
+                    logging.info(f"Import of {file_path} was successful")
+                    return write_ID
+                else:
+                    logging.error(
+                        f"Import failed! Response Code:"
+                        f" {response.status_code if response else 'N/A'}, "
+                        f"Reason: {response.reason if response else 'No response'}"
+                    )
+            except Exception as e:
+                logging.error(f"Error during file upload: {e}")
         else:
-            logging.error("Import failed : first imported csv value  is before the last database timestamp, but must begin after")
+            logging.error(
+                "Import failed: The first CSV value is before the last database timestamp. "
+                "The import must begin after the last timestamp."
+            )
+
         return None
 
-    def __import_session_valid(self, stream_id):
-        if self.import_session_csv_current == None:
-            return False
-        elif self.import_session_csv_current['stream_id'] == stream_id and \
-            (self.import_session_csv_current['ts'] - time.time()) +5 < self.import_session_csv_current['timeout']:
-            return True
-
-    def delete_import_session(self):
+    def __import_session_valid(self, stream_id: str) -> bool:
         """
-         method to delete session http API
+        Checks if the current import session is valid for the given stream ID.
 
-        Returns:
-             http obj:  Server response 
-        """
-       
-        url_list = self.url +'/history/data/import/' + self.session_ID
-        headers = {'Authorization': 'Bearer ' + self.login_token["access_token"]}
-        try:
-            res = requests.delete(url_list, headers = headers)
-            if res.status_code == 200: 
-                logging.info("Import session is closed")
-            else:   
-                logging.error(f"Failed closing import session! \nResponse Code:{res.status_code} \nReason: {res.reason}")
-        except Exception as e:
-            logging.error(f"delete failed: {e}")
-            res="error"
-        return (res)
-
-    ################# Read and Write Single Values out of live datastreams
-    ############### notice postprocessed data do not work with this functions 
-
-    def read_value(self, var_ids:List): 
-        """read online value, enter a list of variable IDs
         Args:
-            var_ids (list): #For example var_ids=["47f32894-c6a0-11ea-81a1-02420a000368"]
+            stream_id (str): The stream ID to check.
 
         Returns:
-            list: current live value
+            bool: True if the import session is valid, False otherwise.
         """
+        if self.import_session_csv_current is None:
+            return False
 
-        url_list = self.url + '/online/data'
-        param = {"Variables":var_ids,"Function":"read"}
-        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
+        session = self.import_session_csv_current
+        session_is_valid = (
+            session["stream_id"] == stream_id
+            and (session["ts"] - time.time()) + 5 < session["timeout"]
+        )
+
+        return session_is_valid
+
+    def delete_import_session(self) -> requests.Response | None:
+        """
+        Deletes the current import session using the HTTP API.
+
+        Returns:
+            Optional[requests.Response]: The server response if the request is successful,
+             otherwise None.
+        """
+        if not self.session_ID:
+            logging.error("No import session ID found. Cannot delete session.")
+            return None
+
+        url_list = f"{self.url}/history/data/import/{self.session_ID}"
+        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
+
         try:
-            res = requests.post(url_list, headers = headers, json = param)
-            if res.status_code == 200: 
+            res = requests.delete(url_list, headers=headers)
+            if res.status_code == 200:
+                logging.info("Import session closed successfully.")
+                return res
+            else:
+                logging.error(
+                    f"Failed to close import session! "
+                    f"Response Code: {res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as e:
+            logging.error(f"Failed to delete import session: {e}")
+
+        return None
+
+    # Read and Write Single Values out of live datastreams
+    # Notice postprocessed data do not work with this functions !
+
+    def read_value(self, var_ids: List[str]) -> List[Any] | None:
+        """
+        Reads online values for a list of variable IDs.
+
+        Args:
+            var_ids (List[str]): A list of variable IDs.
+            For example, var_ids=["47f32894-c6a0-11ea-81a1-02420a000368"].
+
+        Returns:
+            Optional[List[Any]]: A list of current live values if the request is successful,
+            otherwise None.
+        """
+        url_list = f"{self.url}/online/data"
+        param = {"Variables": var_ids, "Function": "read"}
+
+        try:
+            res = requests.post(url_list, headers=self.headers, json=param)
+            if res.status_code == 200:
                 current_live_value = res.json()
-                logging.info(f"Current live Value: {current_live_value}")
+                logging.info(f"Current live value: {current_live_value}")
                 return current_live_value
             else:
-                logging.error(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}") 
-        except Exception as e:
-            logging.error(e)
+                logging.error(
+                    f"Failed to read value! Response Code: {res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as e:
+            logging.error(f"Request error while reading value: {e}")
+
         return None
 
-    def write_value_on_channel(self, var_ids:List, write_list:List):
-        """ read online value, enter a list of variable IDs
+    def write_value_on_channel(self, var_ids: List[str], write_list: List[Any]) -> dict | None:
+        """
+        Writes values to a list of variable IDs.
+
         Args:
-            var_ids (list): #For example var_ids=["47f32894-c6a0-11ea-81a1-02420a000368"]
-            write_list (list): #For example write_list=["0"]
+            var_ids (List[str]): A list of variable IDs.
+            For example, var_ids=["47f32894-c6a0-11ea-81a1-02420a000368"].
+            write_list (List[Any]): A list of values to write. For example, write_list=["0"].
 
         Returns:
-            http obj:  Server response 
+            Optional[dict]: The server response as a dictionary if the request is successful,
+            otherwise None.
         """
+        url_list = f"{self.url}/online/data"
+        param = {
+            "Variables": var_ids,
+            "Values": write_list,
+            "Function": "write",
+        }
 
-        url_list = self.url + '/online/data'
-        param = {"Variables":var_ids, "Values": write_list ,"Function":"write"}
-        headers = {'Content-Type':'application/json','Authorization': 'Bearer ' + self.login_token["access_token"]}
         try:
-            res = requests.post(url_list, headers = headers, json = param)
-            if res.status_code == 200: 
-                write_value_res=res.json() 
-                logging.info("Data Successfully written")
+            res = requests.post(url_list, headers=self.headers, json=param)
+            if res.status_code == 200:
+                write_value_res = res.json()
+                logging.info("Data successfully written.")
                 return write_value_res
             else:
-                logging.error(f"failed! \nResponse Code:{res.status_code} \nReason: {res.reason}") 
-        except Exception as e:
-            logging.error(e)
+                logging.error(
+                    f"Failed to write data! Response Code: {res.status_code}, Reason: {res.reason}"
+                )
+        except requests.RequestException as e:
+            logging.error(f"Request error while writing data: {e}")
+
         return None
-    
-    def get_gistreamvariables(self, stream: str, variables: List) -> List:
-        """Give GIStreamVariable for according stream and variable name"""
+
+    def get_gistreamvariables(self, stream: str, variables: List[str]) -> List[GIStreamVariable]:
+        """
+        Retrieves GIStreamVariable instances for the given stream and variable names.
+
+        Args:
+            stream (str): The stream name.
+            variables (List[str]): A list of variable names.
+
+        Returns:
+            List[Optional[GIStreamVariable]]: A list of GIStreamVariable instances if found,
+            otherwise None for each not found.
+        """
         gi_vars = []
         for var in variables:
-            gi_vars.append(list(self.find_var(stream + '__' + var).values())[0])
+            result = self.find_var(f"{stream}__{var}")
+            if result:
+                gi_vars.append(list(result.values())[0])
         return gi_vars
-
-class Helpers():
-    @staticmethod 
-    def remove_hex_from_string(str):
-        """Remove hex value from input string"""
-        return re.sub(r'[^\x00-\x7f]',r'', str)
-
-class Resolution(Enum):
-    MONTH = 'MONTH'
-    WEEK = 'WEEK'
-    DAY = 'DAY'
-    HOUR = 'HOUR'
-    QUARTER_HOUR = 'QUARTER_HOUR'
-    MINUTE = 'MINUTE'
-    SECOND = 'SECOND'
-    HZ10 = 'HZ10'
-    HZ100 = 'HZ100'
-    KHZ = 'KHZ'
-    KHZ10 = 'KHZ10'
-    NANOS = 'nanos'
-
-@dataclass()
-class GIStream:
-    '''Object for tracking available streams''' 
-    name: str
-    id: str
-    sample_rate_hz: str
-    first_ts: int
-    last_ts: int
-    index: int
-
-
