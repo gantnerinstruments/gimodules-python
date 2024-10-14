@@ -539,12 +539,14 @@ class CloudRequest:
         start_date: str,
         end_date: str,
         resolution: str = "nanos",
-        custom_column_names: list = [],
+        custom_column_names: List | None =None,
         timezone: str = "UTC",
         max_points: int = 700_000,
     ):
         """BETA: This makes batched calls to GraphQL. Not recommended.
         This is still about 2x slower than get_data_as_csv() since we make more http requests"""
+        if custom_column_names is None:
+            custom_column_names = []
         tss, tse = map(self.convert_datetime_to_unix, [start_date, end_date])
         duration_seconds = (tse - tss) // 1000
         sample_rate = get_sample_rate(resolution)
@@ -1099,7 +1101,7 @@ class CloudRequest:
         except pytz.UnknownTimeZoneError:
             return False
 
-    def __convert_df_time_from_utc_to_tz(self, timezone: str = "UTC") -> None:
+    def __convert_df_time_from_utc_to_tz(self, df: pd.DataFrame, timezone: str = "UTC") -> None:
         """
         Converts the timestamps of the DataFrame to the desired time zone.
 
@@ -1109,8 +1111,8 @@ class CloudRequest:
         The data is initially in UTC, and the default conversion is to 'UTC'.
         """
         try:
-            self.df["Time"] = self.df["Time"].dt.tz_localize("UTC")
-            self.df["Time"] = self.df["Time"].dt.tz_convert(timezone)
+            df["Time"] = df["Time"].dt.tz_localize("UTC")
+            df["Time"] = df["Time"].dt.tz_convert(timezone)
         except (AttributeError, TypeError) as err:
             logging.error(f"Error converting DataFrame time to timezone '{timezone}': {err}")
 
