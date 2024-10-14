@@ -539,7 +539,7 @@ class CloudRequest:
         start_date: str,
         end_date: str,
         resolution: str = "nanos",
-        custom_column_names: List | None =None,
+        custom_column_names: List | None = None,
         timezone: str = "UTC",
         max_points: int = 700_000,
     ):
