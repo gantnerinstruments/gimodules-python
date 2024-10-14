@@ -1118,18 +1118,19 @@ class CloudRequest:
         self,
         sid: str,
         limit: int,
-        start_ts: float = 0,
-        end_ts: float = 9999999999999,
+        start_ts: int = 0,
+        end_ts: int = 9999999999999,
         sort: str = "DESC",
     ) -> dict | None:
         """
         Retrieves measurement periods for a given stream ID (sid) with a specified limit.
+        Timestamps cannot be floats!
 
         Args:
             sid (str): Stream ID.
             limit (int): The maximum number of measurement periods to retrieve.
-            start_ts (float, optional): The start timestamp. Defaults to 0.
-            end_ts (float, optional): The end timestamp. Defaults to 9999999999999.
+            start_ts (int, optional): The start timestamp. Defaults to 0.
+            end_ts (int, optional): The end timestamp. Defaults to 9999999999999.
             sort (str, optional): The sort order. Defaults to 'DESC'.
 
         Returns:
