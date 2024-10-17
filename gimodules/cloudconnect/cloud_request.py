@@ -102,6 +102,7 @@ class Resolution(Enum):
     KHZ10 = "KHZ10"
     NANOS = "nanos"
 
+
 class DataFormat(Enum):
     COL = "col"
     ROW = "row"
@@ -112,16 +113,19 @@ class DataFormat(Enum):
     MDF = "mdf"
     MAT = "mat"
 
+
 class DataType(Enum):
     EQUIDISTANT = "equidistant"
     ABSOLUTE = "absolute"
     AUTO = "auto"
     FFT = "fft"
 
+
 class Variable(TypedDict):
     SID: str
     VID: str
     Selector: str
+
 
 class CSVSettings(TypedDict, total=False):
     HeaderText: str
@@ -131,11 +135,11 @@ class CSVSettings(TypedDict, total=False):
     ColumnSeparator: str
     DecimalSeparator: str
 
+
 class LogSettings(TypedDict, total=False):
     SourceID: str
     SourceName: str
     MeasurementName: str
-
 
 
 def get_sample_rate(resolution: str):
@@ -1229,7 +1233,7 @@ class CloudRequest:
         return measurement_list
 
     # ubdf importer
-    def create_import_session_udbf(self, sid: str, stream_name: str) -> Union[dict, str] | None:
+    def _create_import_session_udbf(self, sid: str, stream_name: str) -> Union[dict, str] | None:
         """
         Creates an import session for a UDBF file using the HTTP API.
 
@@ -1256,6 +1260,9 @@ class CloudRequest:
             res = requests.post(url_list, headers=self.headers, json=param)
             if res.status_code == 200:
                 self.import_session_res_udbf = res.json()
+                logging.info(
+                    f"Import session created for UDBF file: {self.import_session_res_udbf}"
+                )
                 return self.import_session_res_udbf
             else:
                 logging.error(
@@ -1267,7 +1274,7 @@ class CloudRequest:
 
         return None
 
-    def import_file_udbf(self, file: bytes) -> requests.Response | None:
+    def import_file_udbf(self, sid: str, stream_name: str, file: bytes) -> requests.Response | None:
         """
         Imports a UDBF file using the HTTP API.
 
@@ -1277,7 +1284,11 @@ class CloudRequest:
         Returns:
             Optional[requests.Response]: The server response if the request is successful,
              otherwise None.
+             :param file:
+             :param stream_name:
+             :param sid:
         """
+        self._create_import_session_udbf(sid, stream_name)
         if not self.import_session_res_udbf or "Data" not in self.import_session_res_udbf:
             logging.error("Import session not initialized. Please create an import session first.")
             return None
@@ -1673,7 +1684,6 @@ class CloudRequest:
                 gi_vars.append(list(result.values())[0])
         return gi_vars
 
-
     def get_buffer_data(
         self,
         start: int,
@@ -1687,7 +1697,7 @@ class CloudRequest:
         timeoffset: int = 0,
         csv_settings: Optional[CSVSettings] = None,
         log_settings: Optional[LogSettings] = None,
-        target: Optional[str] = None
+        target: Optional[str] = None,
     ) -> Union[Dict, bytes]:
         """
         Fetch data from a buffer data source via API.
@@ -1737,7 +1747,7 @@ class CloudRequest:
             "Format": data_format.value,
             "Precision": precision,
             "TimeZone": timezone,
-            "TimeOffset": timeoffset
+            "TimeOffset": timeoffset,
         }
 
         if csv_settings:
