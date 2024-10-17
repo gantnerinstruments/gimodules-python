@@ -1,5 +1,5 @@
 """
-Module to send simplified http request to the Cloud
+Module to send simplified http request to the Cloud. (Gantner HTTP API for more information)
 """
 
 from io import BytesIO
@@ -14,7 +14,7 @@ import logging
 import pytz
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Union, Any, Type, cast
+from typing import List, Dict, Optional, Union, Any, Type, cast, TypedDict
 from requests.auth import HTTPBasicAuth
 from enum import Enum
 from dateutil import tz
@@ -101,6 +101,41 @@ class Resolution(Enum):
     KHZ = "KHZ"
     KHZ10 = "KHZ10"
     NANOS = "nanos"
+
+class DataFormat(Enum):
+    COL = "col"
+    ROW = "row"
+    JSON = "json"
+    CSV = "csv"
+    UDBF = "udbf"
+    FAMOS = "famos"
+    MDF = "mdf"
+    MAT = "mat"
+
+class DataType(Enum):
+    EQUIDISTANT = "equidistant"
+    ABSOLUTE = "absolute"
+    AUTO = "auto"
+    FFT = "fft"
+
+class Variable(TypedDict):
+    SID: str
+    VID: str
+    Selector: str
+
+class CSVSettings(TypedDict, total=False):
+    HeaderText: str
+    AddColumnHeader: bool
+    DateTimeHeader: str
+    DateTimeFormat: str
+    ColumnSeparator: str
+    DecimalSeparator: str
+
+class LogSettings(TypedDict, total=False):
+    SourceID: str
+    SourceName: str
+    MeasurementName: str
+
 
 
 def get_sample_rate(resolution: str):
@@ -1637,3 +1672,88 @@ class CloudRequest:
             if result:
                 gi_vars.append(list(result.values())[0])
         return gi_vars
+
+
+    def get_buffer_data(
+        self,
+        start: int,
+        end: int,
+        variables: List[Variable],
+        points: int = 1_000_000,
+        data_type: DataType = DataType.EQUIDISTANT,
+        data_format: DataFormat = DataFormat.JSON,
+        precision: str = "-1",
+        timezone: str = "Europe/Vienna",
+        timeoffset: int = 0,
+        csv_settings: Optional[CSVSettings] = None,
+        log_settings: Optional[LogSettings] = None,
+        target: Optional[str] = None
+    ) -> Union[Dict, bytes]:
+        """
+        Fetch data from a buffer data source via API.
+
+        Parameters:
+        - start (int): Start time in ms. Use negative value if relative to 'End'.
+        - end (int): End time in ms. Use 0 for 'End'.
+        - variables (List[Variable]): List of variables with keys 'SID', 'VID', 'Selector'.
+        - points (int): Number of data points. Default is 655.
+        - data_type (DataType): Data type. Default is DataType.EQUIDISTANT.
+        - data_format (DataFormat): Data format. Default is DataFormat.JSON.
+        - precision (str): Precision. Default is '-1'.
+        - timezone (str): Timezone specifier, e.g., 'Europe/Vienna'.
+        - timeoffset (int): Time offset in seconds. Default is '0'.
+        - csv_settings (Optional[CSVSettings]): Configuration for CSV format.
+        Required if data_format is DataFormat.CSV.
+        - log_settings (Optional[LogSettings]): Configuration for UDBF format.
+        Required if data_format is DataFormat.UDBF.
+        - target (Optional[str]): For DataFormat.UDBF format. Options: 'file', 'record'.
+
+        Returns:
+        - Union[Dict, str, bytes]: The response data from the API.
+
+        Raises:
+        - requests.HTTPError: If the API request fails.
+        - ValueError: If required parameters are missing.
+        """
+
+        url = f"{self.url}/buffer/data"
+
+        # Validate required parameters
+        if not variables:
+            raise ValueError("The 'variables' parameter must be a non-empty list.")
+
+        if data_format == DataFormat.CSV and not csv_settings:
+            logging.info("'csv_settings' can be configured when data_format is DataFormat.CSV.")
+
+        if data_format == DataFormat.UDBF and not log_settings:
+            logging.info("'log_settings' can be configured when data_format is DataFormat.UDBF.")
+
+        payload: Dict[str, Union[str, int, List[Variable], CSVSettings, LogSettings]] = {
+            "Start": start,
+            "End": end,
+            "Variables": variables,
+            "Points": points,
+            "Type": data_type.value,
+            "Format": data_format.value,
+            "Precision": precision,
+            "TimeZone": timezone,
+            "TimeOffset": timeoffset
+        }
+
+        if csv_settings:
+            payload["CSVSettings"] = csv_settings
+
+        if log_settings:
+            payload["LogSettings"] = log_settings
+
+        if data_format == DataFormat.UDBF and target:
+            payload["Target"] = target
+
+        response = requests.post(url, json=payload, headers=self.headers)
+        response.raise_for_status()
+
+        if data_format in {DataFormat.COL, DataFormat.ROW, DataFormat.JSON}:
+            return response.json()
+        else:
+            # Results given in bytes
+            return response.content
