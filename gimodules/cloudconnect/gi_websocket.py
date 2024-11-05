@@ -59,6 +59,14 @@ WS_LOCATION = os.getenv("WS_LOCATION")
 IS_LOCAL_TEST_VERSION = True
 
 
+@dataclass
+class WSWorkerComponent:
+    id: int
+    worker_type: GInsWSWorkerTypes
+    config: Dict[str, Any]
+    route: str = ""  # Default to empty if not provided
+
+
 # Placeholder classes for types and dependencies
 class Worker:
     def __init__(self):
@@ -72,6 +80,17 @@ class SocketService:
     def __init__(self, ws):
         self.ws = ws
 
+    def _send_message(self, header: list, payload: dict):
+        version = b"\x00"
+        header_json = json.dumps(header, separators=(",", ":"))
+        payload_json = json.dumps(payload)
+        message = (
+            version
+            + len(header_json.encode("utf-8")).to_bytes(2, "little")
+            + (header_json + payload_json).encode("utf-8")
+        )
+        self.ws.send(message, opcode=websocket.ABNF.OPCODE_BINARY)
+
     def subscribe(self, worker_id, worker_type, payload, route=None, worker_add=None):
 
         message_header = [
@@ -81,30 +100,19 @@ class SocketService:
             worker_id,  # WorkerID
             "",  # Worker Add (additional worker specific optional field)
         ]
-        # Serialize to JSON strings
-        message_header_json = json.dumps(message_header)
-        payload_json = json.dumps(payload)
-
-        message_content = message_header_json + payload_json
-
-        # Header bytes
-        def calculate_ascii_size(lst) -> int:
-            return len(json.dumps(lst, separators=(",", ":")).encode("utf-8"))
-
-        def to_little_endian_2_bytes(number: int) -> bytes:
-            return number.to_bytes(2, byteorder="little")
-
-        version = b"\x00"
-
-        ascii_length = calculate_ascii_size(message_header)
-        header_length_bytes = version + to_little_endian_2_bytes(ascii_length)
-
-        message = header_length_bytes + message_content.replace(" ", "").encode("utf-8")
-
-        logging.info(f"Sending message: {message}")
-        # Send the message as binary data
-        self.ws.send(message, opcode=websocket.ABNF.OPCODE_BINARY)
+        self._send_message(message_header, payload)
         return Worker()
+
+    def publish(self, worker_component: WSWorkerComponent, payload: dict):
+        header = [
+            worker_component.route,
+            GInsWSMessageTypes.WSMsgType_Publish.value,
+            worker_component.worker_type.value,
+            worker_component.id,
+            "",
+        ]
+        logging.info(f"Publishing message: {payload}")
+        self._send_message(header, payload)
 
     def reconfigure(self, worker, config):
         pass
@@ -120,14 +128,6 @@ class SocketService:
 
     def authenticate(self, payload):
         pass
-
-
-@dataclass
-class WSWorkerComponent:
-    id: int
-    worker_type: GInsWSWorkerTypes
-    config: Dict[str, Any]
-    route: str = ""  # Default to empty if not provided
 
 
 class GInsWebSocket:
@@ -217,7 +217,8 @@ class GInsWSClient:
 
 
 class GIWebSocket:
-    def __init__(self):
+    def __init__(self, is_ssl):
+        self.is_ssl = is_ssl
         self.ws_client = GInsWSClient
         self.workers = {}
         self.uncreated_workers = []
@@ -227,8 +228,8 @@ class GIWebSocket:
         if IS_LOCAL_TEST_VERSION:
             return f"{WS_LOCATION}/ws"
         else:
-            protocol = "wss://" if "https" in "https://" else "ws://"
-            url = protocol + "10.1.51.66:8090"
+            protocol = "wss://" if self.is_ssl else "ws://"
+            url = protocol + WS_LOCATION
             return f"{url}/ws"
 
     def connect(self, login_required, worker_component: WSWorkerComponent) -> None:
@@ -331,48 +332,14 @@ class GIWebSocket:
         return events
 
     def publish(self, worker_component: WSWorkerComponent, payload: dict) -> None:
-        worker = self.workers.get(worker_component.id)
-        if not worker:
-            logging.error(f"Worker with ID {worker_component.id} not found for publishing.")
-            return
-
-        # Construct the message header as in the `subscribe` method
-        message_header = [
-            worker_component.route,  # Route
-            GInsWSMessageTypes.WSMsgType_Publish.value,  # MessageType for publishing
-            worker_component.worker_type.value,  # WorkerType
-            worker_component.id,  # WorkerID
-            "",  # Worker Add (optional)
-        ]
-        # Serialize to JSON strings
-        message_header_json = json.dumps(message_header)
-        payload_json = json.dumps(payload)
-
-        # Combine header and payload into a single message
-        message_content = message_header_json + payload_json
-
-        # Header bytes
-        def calculate_ascii_size(lst) -> int:
-            return len(json.dumps(lst, separators=(",", ":")).encode("utf-8"))
-
-        def to_little_endian_2_bytes(number: int) -> bytes:
-            return number.to_bytes(2, byteorder="little")
-
-        version = b"\x00"
-        ascii_length = calculate_ascii_size(message_header)
-        header_length_bytes = version + to_little_endian_2_bytes(ascii_length)
-
-        # Final binary message for WebSocket transmission
-        message = header_length_bytes + message_content.replace(" ", "").encode("utf-8")
-        logging.info(f"Publishing message: {message}")
-
-        # Send the message as binary data
-        self.socket_service.ws.send(message, opcode=websocket.ABNF.OPCODE_BINARY)
-        logging.info(f"Published payload to worker {worker_component.id}")
+        if self.socket_service:
+            self.socket_service.publish(worker_component, payload)
+        else:
+            logging.error(f"Worker {worker_component.id} not found for publishing.")
 
 
 if __name__ == "__main__":
-    gi_websocket = GIWebSocket()
+    gi_websocket = GIWebSocket(is_ssl=False)
 
     # Read Online Data
     VIDs = ["4bcbdc16-e621-11ec-8426-d43b040eddc2"]
@@ -391,17 +358,18 @@ if __name__ == "__main__":
     )
     gi_websocket.connect(login_required=True, worker_component=component)
 
-
     # Write Online Data (Setpoint variables)
     write_payload = {
         "Variables": ["0ecebc14-b721-11eb-8f35-d43b040eddc2"],
-        "Values": [1.12345678910],
-        "Function": "write"
+        "Values": [5.123],
+        "Function": "write",
     }
 
     import time
+
     time.sleep(3)
     gi_websocket.publish(worker_component=component, payload=write_payload)
+
     # Authenticate/System State
     """
     config = {
