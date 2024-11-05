@@ -351,7 +351,6 @@ if __name__ == "__main__":
     )
     gi_websocket.connect(login_required=True, worker_component=component)
 
-
     # Authenticate/System State
     """
     config = {
