@@ -25,7 +25,9 @@ jobs:
             ${{ runner.os }}-pip-
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run:
+          pip install -r requirements.txt
+          pipenv install pytest
 
       - name: Run test suite
         run: pytest -v
