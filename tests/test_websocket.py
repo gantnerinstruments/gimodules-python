@@ -143,11 +143,9 @@ class TestGIWebSocket(unittest.TestCase):
         header_json = header_json_bytes.decode("utf-8")
         payload_json = payload_json_bytes.decode("utf-8")
 
-        # Expected header JSON and payload JSON
         expected_header_json = json.dumps(header, separators=(",", ":"))
         expected_payload_json = json.dumps(payload)
 
-        # Calculate expected header length
         expected_header_len = len(expected_header_json.encode("utf-8"))
 
         # Verify that the header length in the message matches the actual length of the header JSON
@@ -157,21 +155,17 @@ class TestGIWebSocket(unittest.TestCase):
             "Header length in message does not match actual header length",
         )
 
-        # Verify that the header JSON matches the expected header JSON
         self.assertEqual(
             header_json,
             expected_header_json,
             "Header JSON in message does not match expected header JSON",
         )
 
-        # Verify that the payload JSON matches the expected payload JSON
         self.assertEqual(
             payload_json,
             expected_payload_json,
             "Payload JSON in message does not match expected payload JSON",
         )
-
-        # Verify that the version byte is correct
         self.assertEqual(version_byte, b"\x00", "Version byte in message is incorrect")
 
 
