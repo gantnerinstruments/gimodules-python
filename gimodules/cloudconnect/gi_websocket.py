@@ -98,7 +98,7 @@ class SocketService:
             GInsWSMessageTypes.WSMsgType_Subscribe.value,  # MessageType
             worker_type.value,  # WorkerType
             worker_id,  # WorkerID
-            "",  # Worker Add (additional worker specific optional field)
+            worker_add if worker_add else "",  # (additional worker specific optional field)
         ]
         self._send_message(message_header, payload)
         return Worker()
