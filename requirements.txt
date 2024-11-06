@@ -62,3 +62,5 @@ tzdata==2024.2
 urllib3==2.2.3
 wcwidth==0.2.13
 widgetsnbextension==4.0.13
+websocket-client~=1.8.0
+pytest
