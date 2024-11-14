@@ -1,6 +1,7 @@
 """
 Module to send simplified http request to the Cloud. (Gantner HTTP API for more information)
 """
+from __future__ import annotations
 
 from io import BytesIO
 import requests
@@ -301,7 +302,7 @@ class CloudRequest:
         """
         Loads the available meta information from all available streams.
         The data is stored in data classes (GIStream)
-         and is accessible via the .streams attribute.
+        and is accessible via the .streams attribute.
 
         Returns:
             A dictionary of stream metadata if successful, otherwise None.
@@ -1330,7 +1331,7 @@ class CloudRequest:
             stream_Name (str): The buffer name for the new stream.
             csv_config (CsvConfig): Configuration settings for the CSV import.
             create_meta_data (bool, optional): Whether to automatically create metadata.
-             Defaults to True.
+            Defaults to True.
             session_timeout (int, optional): Session timeout in seconds. Defaults to 60.
 
         Returns:

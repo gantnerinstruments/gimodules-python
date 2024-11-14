@@ -40,15 +40,14 @@ def replace_ts_with_timezone_ts(df, ts_col, new_timezone, old_timezone="Africa/A
 
 
 def ts_to_dateobj_with_timezone(ts, timezone):
-    """
-    Generate a datetime object with corresponding timezone from given timestamp
-    As unix timestamps are always UTC (GMT+0)
+    """Convert a timestamp to a datetime object with specified timezone.
+
     Args:
-        ts ([float]): Timestamp
-        timezone (String): target Timezone
+        ts (float): Timestamp in milliseconds (assumed UTC).
+        timezone (str): Target timezone.
 
     Returns:
-        [datetime.datetime]: datetime object
+        datetime: Datetime object in the specified timezone.
     """
     # UTC to not take localtime into account
     date_obj = datetime.utcfromtimestamp(ts / 1000)  # Convert into datetime object
