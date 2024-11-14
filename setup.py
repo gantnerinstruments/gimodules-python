@@ -26,7 +26,7 @@ setup(
     packages=find_packages(),
     install_requires=required,
     keywords=['python'],
-    python_requires='>=3.9',
+    python_requires='>=3.8',
     classifiers=[
         "Development Status :: 1 - Planning",
         "Intended Audience :: Developers",
