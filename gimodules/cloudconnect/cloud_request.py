@@ -205,7 +205,14 @@ class CloudRequest:
         use_env_file: bool = False,
     ) -> None:
         """Login method that handles Bearer Token/tenant,
-        username/password logins, or .env file."""
+        username/password logins, or .env file.
+        .env file should look like:
+
+        CLOUD_TENANT='https://demo.gi-cloud.io'
+        BEARER_TOKEN=''
+
+        """
+
 
         if url and access_token:
             self.login_token = {"access_token": access_token}
