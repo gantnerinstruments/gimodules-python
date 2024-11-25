@@ -1,6 +1,7 @@
 """
 Module to send simplified http request to the Cloud. (Gantner HTTP API for more information)
 """
+
 from __future__ import annotations
 
 from io import BytesIO
@@ -212,7 +213,6 @@ class CloudRequest:
         BEARER_TOKEN=''
 
         """
-
 
         if url and access_token:
             self.login_token = {"access_token": access_token}
