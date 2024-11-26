@@ -20,6 +20,7 @@ The package section describes the modules and submodules of the GIModules packag
    :caption: User documentation
 
    overview
+   Usage
 
 .. toctree::
    :maxdepth: 2
