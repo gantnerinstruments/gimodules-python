@@ -382,3 +382,48 @@ def get_now_time_as_string():
 
     utc_time = dt.datetime.utcnow()
     return utc_time.strftime("_%Y_%m_%d-%H_%M_%S")
+
+
+def hist_with_cumulative(
+    df: pd.DataFrame,
+    column: str,
+    divider: float = 1.0,
+    bins: int = 16,
+    figsize: tuple = (15, 8),
+    x_label: str = "Gi",
+    y1_label: str = "Count",
+    y2_label: str = "Cumulative Sum",
+    title: str = "Histogram and Cumulative Distribution",
+) -> None:
+    sns.set_style("whitegrid")
+    adjusted_data = df[column] / divider
+    weights = adjusted_data.values
+
+    fig, ax1 = plt.subplots(figsize=figsize)
+
+    ax1.hist(
+        adjusted_data, weights=weights, bins=bins, edgecolor="black", alpha=0.7, label="Sum per bin"
+    )
+    ax1.set_xlabel(x_label)
+    ax1.set_ylabel(y1_label, color="blue")
+    ax1.tick_params(axis="y", labelcolor="blue")
+    ax1.legend(loc="upper left")
+
+    ax2 = ax1.twinx()
+    ax2.hist(
+        adjusted_data,
+        weights=weights,
+        bins=bins,
+        edgecolor="black",
+        alpha=0.7,
+        cumulative=True,
+        histtype="step",
+        label="Cumulative sum",
+        color="red",
+    )
+    ax2.set_ylabel(y2_label, color="red")
+    ax2.tick_params(axis="y", labelcolor="red")
+    ax2.legend(loc="upper right")
+
+    plt.title(title)
+    plt.show()
