@@ -6,9 +6,9 @@
 
 # Option to control whether dependencies are installed
 # This installs the package with its requirements and is necessary for generated documentation
-option(GINS_INSTALL_PYTHON_DEPENDENCIES "Install required Python dependencies" ON)
+option(GINS_GIMODULES_INSTALL_PYTHON_DEPENDENCIES "Install required Python dependencies" OFF)
 
-if (GINS_INSTALL_PYTHON_DEPENDENCIES)
+if (GINS_GIMODULES_INSTALL_PYTHON_DEPENDENCIES)
     find_package(Python REQUIRED)
 
     execute_process(
