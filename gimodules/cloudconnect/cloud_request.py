@@ -1421,6 +1421,7 @@ class CloudRequest:
         file_path: str,
         py_formatter: str | None = None,
         csv_config: CsvConfig | None = None,
+        separator: str = ";",
     ) -> str | None:
         """
         Performs preparatory functions for CSV import.
@@ -1434,6 +1435,7 @@ class CloudRequest:
             e.g. py_formatterClmn1 = "%d.%m.%Y %H:%M:%S.%f" for python,
             while DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F" for API config
             csv_config (Optional[CsvConfig], optional): Configuration settings for the CSV import.
+            :param separator: csv separator
 
         Returns:
             Optional[str]: The stream ID if the upload is successful, otherwise None.
@@ -1445,8 +1447,10 @@ class CloudRequest:
             # Use the Python formatter if provided, otherwise use the default from csv_config
             if py_formatter is None:
                 py_formatterClmn1 = self.csv_config.DateTimeFmtColumn1
+            else:
+                py_formatterClmn1 = py_formatter
 
-            first_lines = pd.read_csv(file_path, encoding="utf-8", nrows=10, sep=";")
+            first_lines = pd.read_csv(file_path, encoding="utf-8", nrows=10, sep=separator)
             read_date = first_lines.iat[self.csv_config.ValuesStartRowIndex - 1, 0]
             read_date = Helpers.remove_hex_from_string(read_date)
 
