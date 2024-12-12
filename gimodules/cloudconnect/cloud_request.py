@@ -37,6 +37,8 @@ class CsvConfig:
     UnitRowIndex: int = 0
     ValuesStartRowIndex: int = 1
     ValuesStartColumnIndex: int = 1
+    SampleRate: float = -1
+    AddTimeSeries: str = "false"
     # Column 1: Date and Time -> specified in Gantner http docs
     # Comment one out: if python formatter differs from C++ formatter
     # "%d.%m.%Y %H:%M:%S.%F" on backend -> "%d.%m.%Y %H:%M:%S.%f" for python
@@ -1352,8 +1354,8 @@ class CloudRequest:
             "SourceName": stream_Name,
             "MeasID": "",
             "SessionTimeoutSec": str(session_timeout),
-            "AddTimeSeries": "false",
-            "SampleRate": "-1",
+            "AddTimeSeries": csv_config.AddTimeSeries,
+            "SampleRate": str(csv_config.SampleRate),
             "AutoCreateMetaData": str(create_meta_data).lower(),
             "CSVSettings": csv_config.get_config(),
         }
