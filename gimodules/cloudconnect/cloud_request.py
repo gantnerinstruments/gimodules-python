@@ -16,7 +16,7 @@ import logging
 import pytz
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Union, Any, Type, cast, TypedDict
+from typing import List, Dict, Optional, Union, Any, Type, cast, TypedDict, Tuple
 from requests.auth import HTTPBasicAuth
 from enum import Enum
 from dateutil import tz
@@ -305,7 +305,7 @@ class CloudRequest:
 
     from typing import Optional, Dict
 
-    def get_all_stream_metadata(self) -> Dict[str, GIStream] | None:
+    def get_all_stream_metadata(self) -> Dict[Any, GIStream]:
         """
         Loads the available meta information from all available streams.
         The data is stored in data classes (GIStream)
@@ -334,7 +334,7 @@ class CloudRequest:
                     last_ts = stream["LastTimeStamp"]
                     index = stream["Index"]
                     # Store data in dict with dataclass
-                    self.streams[name] = GIStream(
+                    self.streams[stream_id] = GIStream(
                         name,
                         stream_id,
                         sample_rate_hz,
@@ -398,7 +398,7 @@ class CloudRequest:
         self.stream_variabels = {}  # Reset memory
         unit_names = set()  # Use a set to avoid duplicate units
 
-        for stream_name, stream in self.streams.items():
+        for stream in self.streams.values():
             query = f"""
             {{
                 variableMapping(sid: "{stream.id}") {{
@@ -418,9 +418,21 @@ class CloudRequest:
 
             try:
                 res = requests.post(url_list, json={"query": query}, headers=headers)
+
                 if res.status_code == 200:
                     response_data = res.json()
-                    columns = response_data["data"]["variableMapping"]["columns"]
+                    if not isinstance(response_data, dict):
+                        logging.error("Response data is not a dictionary!")
+                        return
+                    columns = (
+                            response_data.get("data", {})
+                            .get("variableMapping", {}) or {}
+                    ).get("columns")
+                    if not columns: # Skip if stream has no mapping
+                        logging.info(f"No variable mapping available for stream {stream.name}"
+                                     f" with sid {stream.id}.")
+                        continue
+                    #columns = response_data["data"]["variableMapping"]["columns"]
                     sid = response_data["data"]["variableMapping"]["sid"]
 
                     for column in columns:
@@ -436,7 +448,7 @@ class CloudRequest:
                             unit_names.add(unit)
 
                         # Create unique variable name
-                        self.stream_variabels[f"{stream_name}__{name}"] = GIStreamVariable(
+                        self.stream_variabels[f"{stream.name}__{name}"] = GIStreamVariable(
                             variable_id, name, index, unit, data_type, sid
                         )
                 elif res.status_code in {401, 403}:
@@ -931,8 +943,8 @@ class CloudRequest:
         """
         if self.stream_variabels is not None and self.streams is not None:
             stream = [
-                stream_name
-                for stream_name, gi_stream in self.streams.items()
+                gi_stream.name
+                for gi_stream in self.streams.values()
                 if gi_stream.id == sid
             ]
             if len(stream) == 1:
@@ -1483,12 +1495,16 @@ class CloudRequest:
         # **************************************
         #    Check if stream exists
         # **************************************
-        if self.streams is not None and stream_name in self.streams:
-            write_ID = self.streams[stream_name].id
-            reprise = 1
-            logging.info(
-                f"Stream already exists in GI.Cloud. Continuing import for stream ID: {write_ID}"
-            )
+        if (self.streams is not None and
+                any(stream.name == stream_name for stream in self.streams.values())):
+            for stream_id, stream in self.streams.items():
+                if stream.name == stream_name:
+                    write_ID = stream.id
+                    reprise = 1
+                    logging.info(
+                        f"Stream already exists in GI.Cloud. "
+                        f"Continuing import for stream ID: {write_ID}"
+                    )
         else:
             write_ID = str(uuid.uuid4())
             reprise = 0
@@ -1506,12 +1522,14 @@ class CloudRequest:
         # **************************************
         if reprise == 1 and self.streams is not None:
             try:
-                last_timestamp = self.streams[stream_name].last_ts
-                timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp / 1000)
-                logging.info(
-                    f"Last UTC imported timestamp:"
-                    f" {(last_timestamp / 1000)}, {timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')}"
-                )
+                for _, stream in self.streams.items():
+                    if stream.name == stream_name:
+                        last_timestamp = stream.last_ts
+                        timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp / 1000)
+                        logging.info(
+                            f"Last UTC imported timestamp:"
+                            f" {(last_timestamp / 1000)}, {timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')}"
+                        )
             except AttributeError:
                 logging.warning("Stream exists but no last timestamp found.")
                 last_timestamp = 0
