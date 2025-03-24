@@ -4,6 +4,7 @@ Module to send simplified http request to the Cloud. (Gantner HTTP API for more 
 
 from __future__ import annotations
 
+from datetime import datetime
 from io import BytesIO
 import requests
 import datetime as dt
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional, Union, Any, Type, cast, Tuple
 from requests.auth import HTTPBasicAuth
 from enum import Enum
-from dateutil import tz
+from dateutil import tz, relativedelta
 
 from gimodules.cloudconnect import utils, authenticate
 
@@ -982,6 +983,7 @@ class CloudRequest:
         delimiter: str = ";",
         timezone: str = "UTC",
         aggregation: str = "avg",
+        batch: Optional[str] = None,
     ) -> Optional[pd.DataFrame]:
         """
         Returns a CSV file with the data of a given list of variables.
@@ -1004,6 +1006,58 @@ class CloudRequest:
             Optional[pd.DataFrame]: The data as a pandas DataFrame if return_df is True,
             otherwise None.
         """
+        # Handle batch processing
+        if batch is not None:
+            if batch not in ['monthly', 'yearly']:
+                raise ValueError("batch must be 'monthly', 'yearly', or None")
+
+            intervals = self._generate_date_intervals(start, end, batch)
+            all_dfs = []
+
+            for i, (batch_start, batch_end) in enumerate(intervals):
+                logging.info(f"Fetching batch: {batch_start}-{batch_end}")
+                batch_df = self.get_data_as_csv(
+                    variables=variables,
+                    resolution=resolution,
+                    start=batch_start,
+                    end=batch_end,
+                    filepath=filepath,
+                    streaming=streaming,
+                    return_df=True,
+                    write_file=False,  # Prevent writing individual batch files
+                    decimal_sep=decimal_sep,
+                    delimiter=delimiter,
+                    timezone=timezone,
+                    aggregation=aggregation,
+                    batch=None,  # Prevent recursion
+                )
+                if batch_df is not None:
+                    if i == 0:
+                        all_dfs.append(batch_df)
+                    else:
+                        # Remove first four metadata rows from subsequent batches
+                        all_dfs.append(batch_df.iloc[3:])
+
+            if not all_dfs:
+                return None
+
+            combined_df = pd.concat(all_dfs, ignore_index=True)
+
+            if write_file:
+                streams = set()
+                for var in variables:
+                    stream = self._get_stream_name_for_sid_vid(var.sid, var.id)
+                    streams.add(stream)
+                filename = f"{'_'.join(filter(None, streams))}_{start}_{end}_{resolution}_{aggregation}.csv"
+                full_path = f"{filepath}{filename}"
+                combined_df.to_csv(
+                    full_path,
+                    sep=delimiter,
+                    decimal=decimal_sep,
+                    index=False,
+                )
+
+            return combined_df if return_df else None
         # Build query and filename
         substring = ""
         streams = set()
@@ -1088,6 +1142,33 @@ class CloudRequest:
             logging.warning(f"Request error while fetching CSV data: {e}")
 
         return None
+
+    def _generate_date_intervals(self, start_str: str, end_str: str, batch: str) -> List[
+        Tuple[str, str]]:
+        """Generates monthly or yearly intervals between start and end dates."""
+        start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
+        end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S")
+        intervals = []
+        current_start = start_dt
+
+        while current_start < end_dt:
+            if batch == 'monthly':
+                next_start = (current_start.replace(day=1) + relativedelta.relativedelta(months=1))
+            elif batch == 'yearly':
+                next_start = (current_start.replace(month=1, day=1) + relativedelta.relativedelta(
+                    years=1))
+            else:
+                raise ValueError("Invalid batch parameter")
+
+            current_end = min(next_start, end_dt)  # Do NOT subtract seconds here!
+
+            current_start_str = current_start.strftime("%Y-%m-%d %H:%M:%S")
+            current_end_str = current_end.strftime("%Y-%m-%d %H:%M:%S")
+            intervals.append((current_start_str, current_end_str))
+
+            current_start = next_start
+
+        return intervals
 
     def __get_column_names(self, sid: str, index_list: List[str]) -> List[str]:
         """
