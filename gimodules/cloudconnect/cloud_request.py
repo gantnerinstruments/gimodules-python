@@ -199,10 +199,10 @@ class CloudRequest:
 
     def login(
         self,
-        access_token: Optional[str] = None,
         url: Optional[str] = None,
         user: Optional[str] = None,
         password: Optional[str] = None,
+        access_token: Optional[str] = None,
         use_env_file: bool = False,
     ) -> None:
         """Login method that handles Bearer Token/tenant,
