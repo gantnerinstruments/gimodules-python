@@ -28,7 +28,7 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           if [ "${{ matrix.python-version }}" == "3.7" ]; then
             pip install -r requirements37.txt
-          if [ "${{ matrix.python-version }}" == "3.12" ]; then
+          elif [ "${{ matrix.python-version }}" == "3.12" ]; then
             pip install -r requirements312.txt
           else
             pip install -r requirements.txt
