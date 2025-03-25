@@ -426,9 +426,8 @@ class CloudRequest:
                         logging.error("Response data is not a dictionary!")
                         return
                     columns = (
-                            response_data.get("data", {})
-                            .get("variableMapping", {}) or {}
-                    ).get("columns")
+                        response_data.get("data", {})
+                        .get("variableMapping", {}) or {}).get("columns")
                     if not columns:  # Skip if stream has no mapping
                         logging.info(f"No variable mapping available for stream {stream.name}"
                                      f" with sid {stream.id}.")
@@ -1048,7 +1047,8 @@ class CloudRequest:
                 for var in variables:
                     stream = self._get_stream_name_for_sid_vid(var.sid, var.id)
                     streams.add(stream)
-                filename = f"{'_'.join(filter(None, streams))}_{start}_{end}_{resolution}_{aggregation}.csv"
+                filename = (f"{'_'.join(filter(None, streams))}_"
+                            f"{start}_{end}_{resolution}_{aggregation}.csv")
                 full_path = f"{filepath}{filename}"
                 combined_df.to_csv(
                     full_path,
@@ -1143,8 +1143,8 @@ class CloudRequest:
 
         return None
 
-    def _generate_date_intervals(self, start_str: str, end_str: str, batch: str) -> List[
-        Tuple[str, str]]:
+    def _generate_date_intervals(self, start_str: str, end_str: str, batch: str) -> \
+            List[Tuple[str, str]]:
         """Generates monthly or yearly intervals between start and end dates."""
         start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
         end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S")
@@ -1374,7 +1374,8 @@ class CloudRequest:
 
         return None
 
-    def import_file_udbf(self, sid: str, stream_name: str, file: bytes) -> Optional[requests.Response]:
+    def import_file_udbf(self, sid: str, stream_name: str, file: bytes) \
+            -> Optional[requests.Response]:
         """
         Imports a UDBF file using the HTTP API.
 
@@ -1571,8 +1572,8 @@ class CloudRequest:
         # **************************************
         #    Check if stream exists
         # **************************************
-        if (self.streams is not None and
-                any(stream.name == stream_name for stream in self.streams.values())):
+        if (self.streams is not None
+                and any(stream.name == stream_name for stream in self.streams.values())):
             for stream_id, stream in self.streams.items():
                 if stream.name == stream_name:
                     write_ID = stream.id
@@ -1604,7 +1605,8 @@ class CloudRequest:
                         timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp / 1000)
                         logging.info(
                             f"Last UTC imported timestamp:"
-                            f" {(last_timestamp / 1000)}, {timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')}"
+                            f" {(last_timestamp / 1000)}, "
+                            f"{timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')}"
                         )
             except AttributeError:
                 logging.warning("Stream exists but no last timestamp found.")
