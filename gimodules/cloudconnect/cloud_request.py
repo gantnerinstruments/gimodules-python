@@ -176,13 +176,14 @@ def get_sample_rate(resolution: str):
 
 class CloudRequest:
     def __init__(self) -> None:
+        self.stream_variables = None
         self.url: Optional[str] = ""
         self.user: str = ""
         self.pw: str = ""
         self.login_token: Optional[Dict[str, Optional[str]]] = None
         self.refresh_token: Optional[str] = None
         self.streams: Optional[Dict[str, GIStream]] = None
-        self.stream_variabels: Optional[Dict[str, GIStreamVariable]] = None
+        self.stream_variables: Optional[Dict[str, GIStreamVariable]] = None
         self.query: str = ""
         self.request_measurement_res = None
         self.timezone: str = "Europe/Vienna"
@@ -406,88 +407,66 @@ class CloudRequest:
 
     def get_all_var_metadata(self) -> None:
         """
-        Loads the available meta information from all available variables.
-        The data is stored in data classes
-        and is accessible via the .stream_variabels attribute.
+        Loads the available meta information from all available variables
+        using the REST endpoint (GQL API varmapping does not update on project config change).
+        The data is stored in data classes and is accessible via the .stream_variables attribute.
         """
         if not self.streams:
             logging.info("You have no loaded streams. Please load streams first.")
             return
 
-        # Prepare request
-        url_list = f"{self.url}/__api__/gql"
+        url = f"{self.url}/kafka/structure/sources"
         assert self.login_token, "No valid access token. Please log in first."
-        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
-        self.stream_variabels = {}  # Reset memory
-        unit_names = set()  # Use a set to avoid duplicate units
+        headers = {
+            "Authorization": f"Bearer {self.login_token['access_token']}",
+            "Content-Type": "application/json",
+        }
 
-        for stream in self.streams.values():
-            query = f"""
-            {{
-                variableMapping(sid: "{stream.id}") {{
-                    sid
-                    columns {{
-                        name
-                        variables {{
-                            id
-                            dataType
-                            name
-                            unit
-                        }}
-                    }}
-                }}
-            }}
-            """
+        self.stream_variables = {}  # Reset memory
+        unit_names = set()
 
-            try:
-                res = requests.post(url_list, json={"query": query}, headers=headers)
+        payload = {
+            "AddVarMapping": True,
+            "Sources": [stream.id for stream in self.streams.values()],
+        }
 
-                if res.status_code == 200:
-                    response_data = res.json()
-                    if not isinstance(response_data, dict):
-                        logging.error("Response data is not a dictionary!")
-                        return
-                    columns = (
-                        response_data.get("data", {})
-                        .get("variableMapping", {}) or {}).get("columns")
-                    if not columns:  # Skip if stream has no mapping
-                        logging.info(f"No variable mapping available for stream {stream.name}"
-                                     f" with sid {stream.id}.")
-                        continue
-                    sid = response_data["data"]["variableMapping"]["sid"]
+        try:
+            res = requests.post(url, json=payload, headers=headers)
 
-                    for column in columns:
-                        index = column["name"]  # Var index in GI System
-                        variable = column["variables"][0]  # Assuming there's always one variable
-                        name = variable["name"]
-                        data_type = variable["dataType"]
-                        variable_id = variable["id"]
-                        unit = variable["unit"]
+            if res.status_code == 401 or res.status_code == 403:
+                self.refresh_access_token()
+                headers["Authorization"] = f"Bearer {self.login_token['access_token']}"
+                res = requests.post(url, json=payload, headers=headers)
 
-                        # Add unit to set if not empty
-                        if unit:
-                            unit_names.add(unit)
+            res.raise_for_status()
+            response_data = res.json()
 
-                        # Create unique variable name
-                        self.stream_variabels[f"{stream.name}__{name}"] = GIStreamVariable(
-                            variable_id, name, index, unit, data_type, sid
-                        )
-                elif res.status_code in {401, 403}:
-                    self.refresh_access_token()
-                    # Retry once after refreshing the token
-                    res = requests.post(url_list, json={"query": query}, headers=headers)
-                    if res.status_code != 200:
-                        logging.error(
-                            f"Fetching variable info failed after token refresh!"
-                            f" Code: {res.status_code}"
-                        )
-                else:
-                    logging.error(
-                        f"Fetching variable info failed! "
-                        f"Code: {res.status_code}, Reason: {res.reason}"
+            if not response_data.get("Success"):
+                logging.error("Failed to load data: %s", response_data.get("Message"))
+                return
+
+            for source in response_data.get("Data", []):
+                stream_name = source["Name"]
+                sid = source["Id"]
+                for variable in source.get("Variables", []):
+                    name = variable["Name"]
+                    index = variable["Index"]
+                    data_type = variable["DataFormat"]
+                    variable_id = variable["Id"]
+                    unit = variable["Unit"]
+
+                    if unit:
+                        unit_names.add(unit)
+
+                    # Create unique variable name
+                    unique_var_name = f"{stream_name}__{name}"
+                    self.stream_variables[unique_var_name] = GIStreamVariable(
+                        variable_id, name, index, unit, data_type, sid
                     )
-            except requests.RequestException as e:
-                logging.warning(f"Request error while fetching variable metadata: {e}")
+
+        except requests.RequestException as e:
+            logging.error("Request error while fetching variable metadata: %s", e)
+            return
 
         # Create Enum for available units
         self.units = cast(Type[Enum], Enum("Units", {unit: unit for unit in unit_names}))
@@ -538,23 +517,23 @@ class CloudRequest:
             Optional[Dict[str, GIStreamVariable]]: Dictionary of found variables
             or None if no matches.
         """
-        if not self.stream_variabels:
+        if not self.stream_variables:
             logging.info("No variables are available to search.")
             return None
 
         # Search logic
         if isinstance(var_name, list):
             var_name_set = set(var_name)  # Use set for faster lookup
-            match = [k for k in self.stream_variabels.keys() if any(vr in k for vr in var_name_set)]
+            match = [k for k in self.stream_variables.keys() if any(vr in k for vr in var_name_set)]
         else:
-            match = [k for k in self.stream_variabels.keys() if var_name in k]
+            match = [k for k in self.stream_variables.keys() if var_name in k]
 
         if not match:
             logging.info("No variable found.")
             return None
 
         # Create the result dictionary for matching variables
-        result = {m: self.stream_variabels[m] for m in match}
+        result = {m: self.stream_variables[m] for m in match}
         return result
 
     def filter_var_attr(self, attr: str, value: str) -> Optional[List[GIStreamVariable]]:
@@ -569,12 +548,12 @@ class CloudRequest:
             Optional[List[GIStreamVariable]]: A list of matching variables,
              or None if no matches found.
         """
-        if not self.stream_variabels:
+        if not self.stream_variables:
             logging.info("No stream variables available to filter.")
             return None
 
         # Filtering based on the attribute and value
-        match = [var for var in self.stream_variabels.values() if getattr(var, attr, "") == value]
+        match = [var for var in self.stream_variables.values() if getattr(var, attr, "") == value]
 
         return match if match else None
 
@@ -944,8 +923,8 @@ class CloudRequest:
         Returns:
             Optional[str]: The stream name if found, otherwise None.
         """
-        if self.stream_variabels is not None:
-            stream = [k for k, v in self.stream_variabels.items() if v.sid == sid and v.id == vid]
+        if self.stream_variables is not None:
+            stream = [k for k, v in self.stream_variables.items() if v.sid == sid and v.id == vid]
             if len(stream) == 1:
                 return stream[0].split("__")[0]
 
@@ -962,7 +941,7 @@ class CloudRequest:
         Returns:
             Optional[str]: The stream name if found, otherwise None.
         """
-        if self.stream_variabels is not None and self.streams is not None:
+        if self.stream_variables is not None and self.streams is not None:
             stream = [
                 gi_stream.name
                 for gi_stream in self.streams.values()
@@ -984,8 +963,8 @@ class CloudRequest:
         Returns:
             List[GIStreamVariable]: A list of variables for the given stream ID.
         """
-        if self.stream_variabels is not None:
-            return [v for v in self.stream_variabels.values() if v.sid == sid]
+        if self.stream_variables is not None:
+            return [v for v in self.stream_variables.values() if v.sid == sid]
 
         logging.info("No stream variables available.")
         return []
