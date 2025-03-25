@@ -452,7 +452,7 @@ class CloudRequest:
                 sid = source["Id"]
                 for variable in source.get("Variables", []):
                     name = variable["Name"]
-                    index = variable["Index"]
+                    index = variable["GQLId"]
                     data_type = variable["DataFormat"]
                     variable_id = variable["Id"]
                     unit = variable["Unit"]
