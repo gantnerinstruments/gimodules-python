@@ -206,6 +206,7 @@ class CloudRequest:
         password: Optional[str] = None,
         access_token: Optional[str] = None,
         use_env_file: bool = False,
+        dotenv_path: Optional[str] = ".env",
     ) -> None:
         """Login method that handles Bearer Token/tenant,
         username/password logins, or .env file.
@@ -213,7 +214,7 @@ class CloudRequest:
 
         CLOUD_TENANT='https://demo.gi-cloud.io'
         BEARER_TOKEN=''
-
+        dotenv_path example: "/path/to/custom/.env"
         """
 
         if url and access_token:
@@ -224,7 +225,7 @@ class CloudRequest:
             self.user = user
             self.pw = password
         elif use_env_file:
-            tenant, bearer_token, refresh_token = authenticate.load_env_variables()
+            tenant, bearer_token, refresh_token = authenticate.load_env_variables(dotenv_path=dotenv_path)
             logging.info(bearer_token)
             self.url = tenant
             self.login_token = {
