@@ -358,6 +358,28 @@ class CloudRequest:
 
         return None
 
+    def get_streams_by_name(self, stream_name: str) -> Optional[List[GIStream]]:
+        """
+        Searches for streams by name.
+
+        Args:
+            stream_name (str): The name of the stream to search for.
+
+        Returns:
+            Optional[List[GIStream]]: A list of matching streams, or None if no matches.
+        """
+        if not self.streams:
+            logging.info("You have no loaded streams.")
+            return None
+
+        matches = [stream for stream in self.streams.values() if stream.name == stream_name]
+
+        if not matches:
+            logging.info("No stream found.")
+            return None
+
+        return matches
+
     def print_streams(self) -> None:
         """
         Prints the available streams' metadata.
