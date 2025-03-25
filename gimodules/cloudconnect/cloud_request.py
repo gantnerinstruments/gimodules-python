@@ -225,7 +225,8 @@ class CloudRequest:
             self.user = user
             self.pw = password
         elif use_env_file:
-            tenant, bearer_token, refresh_token = authenticate.load_env_variables(dotenv_path=dotenv_path)
+            tenant, bearer_token, refresh_token = (
+                authenticate.load_env_variables(dotenv_path=dotenv_path))
             logging.info(bearer_token)
             self.url = tenant
             self.login_token = {
