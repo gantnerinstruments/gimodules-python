@@ -451,11 +451,23 @@ class CloudRequest:
                 stream_name = source["Name"]
                 sid = source["Id"]
                 for variable in source.get("Variables", []):
-                    name = variable["Name"]
-                    index = variable["GQLId"]
-                    data_type = variable["DataFormat"]
-                    variable_id = variable["Id"]
-                    unit = variable["Unit"]
+                    try:
+                        name = variable["Name"]
+                        index = variable["GQLId"]
+                        variable_id = variable["Id"]
+
+                        # Use .get() for non critical in case it's missing
+                        unit = variable.get("Unit", "")
+                        data_type = variable.get("DataFormat", "")
+                    except KeyError as missing_key:
+                        if name:
+                            logging.info(f"Skipping variable '{name}'"
+                                         f" in stream '{stream_name}' due to "
+                                         f"missing key: {missing_key}")
+                        else:
+                            logging.info(f"Skipping variable in stream "
+                                         f"'{stream_name}' due to missing key: {missing_key}")
+                        continue
 
                     if unit:
                         unit_names.add(unit)
