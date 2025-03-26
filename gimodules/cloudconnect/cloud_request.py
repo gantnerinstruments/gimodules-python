@@ -1015,6 +1015,8 @@ class CloudRequest:
             delimiter (str, optional): Field delimiter for the CSV. Defaults to ";".
             timezone (str, optional): Timezone for the export. Defaults to "UTC".
             aggregation (str, optional): Aggregation type. Defaults to "avg".
+            batch (str, optional): Batch size for the export e.g "monthly", "yearly".
+             Defaults to None.
 
         Returns:
             Optional[pd.DataFrame]: The data as a pandas DataFrame if return_df is True,
