@@ -36,8 +36,9 @@ def set_environment_variable(var_name: str, value: str) -> None:
     set_key(dotenv_file, var_name, value)
 
 
-def load_env_variables() -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    load_dotenv()
+def load_env_variables(dotenv_path: Optional[str] = ".env") ->\
+        Tuple[Optional[str], Optional[str], Optional[str]]:
+    load_dotenv(dotenv_path=dotenv_path)
     tenant: Optional[str] = os.getenv("CLOUD_TENANT")
     token: Optional[str] = os.getenv("BEARER_TOKEN")
     refresh_token: Optional[str] = os.getenv("REFRESH_TOKEN")

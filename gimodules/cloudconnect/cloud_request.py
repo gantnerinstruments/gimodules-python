@@ -4,6 +4,7 @@ Module to send simplified http request to the Cloud. (Gantner HTTP API for more 
 
 from __future__ import annotations
 
+from datetime import datetime
 from io import BytesIO
 import requests
 import datetime as dt
@@ -16,10 +17,10 @@ import logging
 import pytz
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Union, Any, Type, cast, TypedDict, Tuple
+from typing import List, Dict, Optional, Union, Any, Type, cast, Tuple
 from requests.auth import HTTPBasicAuth
 from enum import Enum
-from dateutil import tz
+from dateutil import tz, relativedelta
 
 from gimodules.cloudconnect import utils, authenticate
 
@@ -85,9 +86,9 @@ class GIStreamVariable:
 
 class Helpers:
     @staticmethod
-    def remove_hex_from_string(str):
+    def remove_hex_from_string(string: str) -> str:
         """Remove hex value from input string"""
-        return re.sub(r"[^\x00-\x7f]", r"", str)
+        return re.sub(r"[^\x00-\x7f]", r"", string)
 
 
 class Resolution(Enum):
@@ -123,13 +124,13 @@ class DataType(Enum):
     FFT = "fft"
 
 
-class Variable(TypedDict):
+class Variable():
     SID: str
     VID: str
     Selector: str
 
 
-class CSVSettings(TypedDict, total=False):
+class CSVSettings():
     HeaderText: str
     AddColumnHeader: bool
     DateTimeHeader: str
@@ -138,7 +139,7 @@ class CSVSettings(TypedDict, total=False):
     DecimalSeparator: str
 
 
-class LogSettings(TypedDict, total=False):
+class LogSettings():
     SourceID: str
     SourceName: str
     MeasurementName: str
@@ -175,13 +176,14 @@ def get_sample_rate(resolution: str):
 
 class CloudRequest:
     def __init__(self) -> None:
-        self.url: str | None = ""
+        self.stream_variables = None
+        self.url: Optional[str] = ""
         self.user: str = ""
         self.pw: str = ""
-        self.login_token: Optional[Dict[str, str | None]] = None
+        self.login_token: Optional[Dict[str, Optional[str]]] = None
         self.refresh_token: Optional[str] = None
-        self.streams: dict[str, GIStream] | None = None
-        self.stream_variabels: dict[str, GIStreamVariable] | None = None
+        self.streams: Optional[Dict[str, GIStream]] = None
+        self.stream_variables: Optional[Dict[str, GIStreamVariable]] = None
         self.query: str = ""
         self.request_measurement_res = None
         self.timezone: str = "Europe/Vienna"
@@ -193,17 +195,18 @@ class CloudRequest:
         # Importer data
         self.import_session_res_udbf = None
         self.import_session_res_csv = None
-        self.import_session_csv_current: dict | None = None
+        self.import_session_csv_current: Optional[dict] = None
         self.session_ID = None
         self.csv_config = CsvConfig()
 
     def login(
         self,
-        access_token: Optional[str] = None,
         url: Optional[str] = None,
         user: Optional[str] = None,
         password: Optional[str] = None,
+        access_token: Optional[str] = None,
         use_env_file: bool = False,
+        dotenv_path: Optional[str] = ".env",
     ) -> None:
         """Login method that handles Bearer Token/tenant,
         username/password logins, or .env file.
@@ -211,7 +214,7 @@ class CloudRequest:
 
         CLOUD_TENANT='https://demo.gi-cloud.io'
         BEARER_TOKEN=''
-
+        dotenv_path example: "/path/to/custom/.env"
         """
 
         if url and access_token:
@@ -222,7 +225,8 @@ class CloudRequest:
             self.user = user
             self.pw = password
         elif use_env_file:
-            tenant, bearer_token, refresh_token = authenticate.load_env_variables()
+            tenant, bearer_token, refresh_token = (
+                authenticate.load_env_variables(dotenv_path=dotenv_path))
             logging.info(bearer_token)
             self.url = tenant
             self.login_token = {
@@ -305,7 +309,7 @@ class CloudRequest:
 
     from typing import Optional, Dict
 
-    def get_all_stream_metadata(self) -> Dict[Any, GIStream]:
+    def get_all_stream_metadata(self) -> Optional[Dict[Any, GIStream]]:
         """
         Loads the available meta information from all available streams.
         The data is stored in data classes (GIStream)
@@ -357,6 +361,28 @@ class CloudRequest:
 
         return None
 
+    def get_streams_by_name(self, stream_name: str) -> Optional[List[GIStream]]:
+        """
+        Searches for streams by name.
+
+        Args:
+            stream_name (str): The name of the stream to search for.
+
+        Returns:
+            Optional[List[GIStream]]: A list of matching streams, or None if no matches.
+        """
+        if not self.streams:
+            logging.info("You have no loaded streams.")
+            return None
+
+        matches = [stream for stream in self.streams.values() if stream.name == stream_name]
+
+        if not matches:
+            logging.info("No stream found.")
+            return None
+
+        return matches
+
     def print_streams(self) -> None:
         """
         Prints the available streams' metadata.
@@ -383,95 +409,83 @@ class CloudRequest:
 
     def get_all_var_metadata(self) -> None:
         """
-        Loads the available meta information from all available variables.
-        The data is stored in data classes
-        and is accessible via the .stream_variabels attribute.
+        Loads the available meta information from all available variables
+        using the REST endpoint (GQL API varmapping does not update on project config change).
+        The data is stored in data classes and is accessible via the .stream_variables attribute.
         """
         if not self.streams:
             logging.info("You have no loaded streams. Please load streams first.")
             return
 
-        # Prepare request
-        url_list = f"{self.url}/__api__/gql"
+        url = f"{self.url}/kafka/structure/sources"
         assert self.login_token, "No valid access token. Please log in first."
-        headers = {"Authorization": f"Bearer {self.login_token['access_token']}"}
-        self.stream_variabels = {}  # Reset memory
-        unit_names = set()  # Use a set to avoid duplicate units
+        headers = {
+            "Authorization": f"Bearer {self.login_token['access_token']}",
+            "Content-Type": "application/json",
+        }
 
-        for stream in self.streams.values():
-            query = f"""
-            {{
-                variableMapping(sid: "{stream.id}") {{
-                    sid
-                    columns {{
-                        name
-                        variables {{
-                            id
-                            dataType
-                            name
-                            unit
-                        }}
-                    }}
-                }}
-            }}
-            """
+        self.stream_variables = {}  # Reset memory
+        unit_names = set()
 
-            try:
-                res = requests.post(url_list, json={"query": query}, headers=headers)
+        payload = {
+            "AddVarMapping": True,
+            "Sources": [stream.id for stream in self.streams.values()],
+        }
 
-                if res.status_code == 200:
-                    response_data = res.json()
-                    if not isinstance(response_data, dict):
-                        logging.error("Response data is not a dictionary!")
-                        return
-                    columns = (
-                            response_data.get("data", {})
-                            .get("variableMapping", {}) or {}
-                    ).get("columns")
-                    if not columns: # Skip if stream has no mapping
-                        logging.info(f"No variable mapping available for stream {stream.name}"
-                                     f" with sid {stream.id}.")
+        try:
+            res = requests.post(url, json=payload, headers=headers)
+
+            if res.status_code == 401 or res.status_code == 403:
+                self.refresh_access_token()
+                headers["Authorization"] = f"Bearer {self.login_token['access_token']}"
+                res = requests.post(url, json=payload, headers=headers)
+
+            res.raise_for_status()
+            response_data = res.json()
+
+            if not response_data.get("Success"):
+                logging.error("Failed to load data: %s", response_data.get("Message"))
+                return
+
+            for source in response_data.get("Data", []):
+                stream_name = source["Name"]
+                sid = source["Id"]
+                for variable in source.get("Variables", []):
+                    try:
+                        name = variable["Name"]
+                        index = variable["GQLId"]
+                        variable_id = variable["Id"]
+
+                        # Use .get() for non critical in case it's missing
+                        unit = variable.get("Unit", "")
+                        data_type = variable.get("DataFormat", "")
+                    except KeyError as missing_key:
+                        if name:
+                            logging.info(f"Skipping variable '{name}'"
+                                         f" in stream '{stream_name}' due to "
+                                         f"missing key: {missing_key}")
+                        else:
+                            logging.info(f"Skipping variable in stream "
+                                         f"'{stream_name}' due to missing key: {missing_key}")
                         continue
-                    #columns = response_data["data"]["variableMapping"]["columns"]
-                    sid = response_data["data"]["variableMapping"]["sid"]
 
-                    for column in columns:
-                        index = column["name"]  # Var index in GI System
-                        variable = column["variables"][0]  # Assuming there's always one variable
-                        name = variable["name"]
-                        data_type = variable["dataType"]
-                        variable_id = variable["id"]
-                        unit = variable["unit"]
+                    if unit:
+                        unit_names.add(unit)
 
-                        # Add unit to set if not empty
-                        if unit:
-                            unit_names.add(unit)
-
-                        # Create unique variable name
-                        self.stream_variabels[f"{stream.name}__{name}"] = GIStreamVariable(
-                            variable_id, name, index, unit, data_type, sid
-                        )
-                elif res.status_code in {401, 403}:
-                    self.refresh_access_token()
-                    # Retry once after refreshing the token
-                    res = requests.post(url_list, json={"query": query}, headers=headers)
-                    if res.status_code != 200:
-                        logging.error(
-                            f"Fetching variable info failed after token refresh!"
-                            f" Code: {res.status_code}"
-                        )
-                else:
-                    logging.error(
-                        f"Fetching variable info failed! "
-                        f"Code: {res.status_code}, Reason: {res.reason}"
+                    # Create unique variable name
+                    unique_var_name = f"{stream_name}__{name}"
+                    self.stream_variables[unique_var_name] = GIStreamVariable(
+                        variable_id, name, index, unit, data_type, sid
                     )
-            except requests.RequestException as e:
-                logging.warning(f"Request error while fetching variable metadata: {e}")
+
+        except requests.RequestException as e:
+            logging.error("Request error while fetching variable metadata: %s", e)
+            return
 
         # Create Enum for available units
         self.units = cast(Type[Enum], Enum("Units", {unit: unit for unit in unit_names}))
 
-    def variable_info(self) -> Any | None:
+    def variable_info(self) -> Optional[Any]:
         """
         Use this endpoint to read information for all available online variables.
 
@@ -506,37 +520,37 @@ class CloudRequest:
 
         return None
 
-    def find_var(self, var_name: Union[str, list[str]]) -> Dict[str, GIStreamVariable] | None:
+    def find_var(self, var_name: Union[str, List[str]]) -> Optional[Dict[str, GIStreamVariable]]:
         """
         Searches the existing variables.
 
         Args:
-            var_name (Union[str, list[str]]): Variable name or a list of substrings.
+            var_name (Union[str, List[str]]): Variable name or a list of substrings.
 
         Returns:
             Optional[Dict[str, GIStreamVariable]]: Dictionary of found variables
             or None if no matches.
         """
-        if not self.stream_variabels:
+        if not self.stream_variables:
             logging.info("No variables are available to search.")
             return None
 
         # Search logic
         if isinstance(var_name, list):
             var_name_set = set(var_name)  # Use set for faster lookup
-            match = [k for k in self.stream_variabels.keys() if any(vr in k for vr in var_name_set)]
+            match = [k for k in self.stream_variables.keys() if any(vr in k for vr in var_name_set)]
         else:
-            match = [k for k in self.stream_variabels.keys() if var_name in k]
+            match = [k for k in self.stream_variables.keys() if var_name in k]
 
         if not match:
             logging.info("No variable found.")
             return None
 
         # Create the result dictionary for matching variables
-        result = {m: self.stream_variabels[m] for m in match}
+        result = {m: self.stream_variables[m] for m in match}
         return result
 
-    def filter_var_attr(self, attr: str, value: str) -> List[GIStreamVariable] | None:
+    def filter_var_attr(self, attr: str, value: str) -> Optional[List[GIStreamVariable]]:
         """
         Search for stream_variables with a certain attribute.
 
@@ -548,18 +562,18 @@ class CloudRequest:
             Optional[List[GIStreamVariable]]: A list of matching variables,
              or None if no matches found.
         """
-        if not self.stream_variabels:
+        if not self.stream_variables:
             logging.info("No stream variables available to filter.")
             return None
 
         # Filtering based on the attribute and value
-        match = [var for var in self.stream_variabels.values() if getattr(var, attr, "") == value]
+        match = [var for var in self.stream_variables.values() if getattr(var, attr, "") == value]
 
         return match if match else None
 
     @staticmethod
     def _build_sensorid_querystring(
-        indices: List[str], aggregations: List[str] | None = None
+        indices: List[str], aggregations: Optional[List[str]] = None
     ) -> str:
         """
         Builds a query string for the sensor IDs with optional aggregations.
@@ -598,7 +612,7 @@ class CloudRequest:
         start_date: str,
         end_date: str,
         resolution: str = "nanos",
-        custom_column_names: List | None = None,
+        custom_column_names: Optional[List[str]] = None,
         timezone: str = "UTC",
         max_points: int = 700_000,
     ):
@@ -704,9 +718,9 @@ class CloudRequest:
         start_date: str,
         end_date: str,
         resolution: str = "nanos",
-        custom_column_names: List[str] | None = None,
+        custom_column_names: Optional[List[str]] = None,
         timezone: str = "UTC",
-    ) -> pd.DataFrame | None:
+    ) -> Optional[pd.DataFrame]:
         """
         Returns a pandas DataFrame with timestamps and values directly from a data stream.
 
@@ -791,7 +805,7 @@ class CloudRequest:
 
                 # Convert time column to datetime and adjust timezone
                 self.df["Time"] = pd.to_datetime(self.df["Time"], unit="ms")
-                self.__convert_df_time_from_utc_to_tz(timezone)
+                self.__convert_df_time_from_utc_to_tz(self.df, timezone)
 
                 return self.df
             elif res.status_code in {401, 403}:
@@ -825,7 +839,7 @@ class CloudRequest:
         tss: str,
         tse: str,
         resolution: str = "nanos",
-    ) -> np.ndarray | None:
+    ) -> Optional[np.ndarray]:
         """
         Returns a numpy matrix of data with timestamps and values directly from a data stream.
 
@@ -912,7 +926,7 @@ class CloudRequest:
 
         return None
 
-    def _get_stream_name_for_sid_vid(self, sid: str, vid: str) -> str | None:
+    def _get_stream_name_for_sid_vid(self, sid: str, vid: str) -> Optional[str]:
         """
         Retrieves the stream name for a given stream ID (sid) and variable ID (vid).
 
@@ -923,15 +937,15 @@ class CloudRequest:
         Returns:
             Optional[str]: The stream name if found, otherwise None.
         """
-        if self.stream_variabels is not None:
-            stream = [k for k, v in self.stream_variabels.items() if v.sid == sid and v.id == vid]
+        if self.stream_variables is not None:
+            stream = [k for k, v in self.stream_variables.items() if v.sid == sid and v.id == vid]
             if len(stream) == 1:
                 return stream[0].split("__")[0]
 
         logging.info("No stream variables available or matching stream not found.")
         return None
 
-    def _get_stream_name_for_sid(self, sid: str) -> str | None:
+    def _get_stream_name_for_sid(self, sid: str) -> Optional[str]:
         """
         Retrieves the stream name for a given stream ID (sid).
 
@@ -941,7 +955,7 @@ class CloudRequest:
         Returns:
             Optional[str]: The stream name if found, otherwise None.
         """
-        if self.stream_variabels is not None and self.streams is not None:
+        if self.stream_variables is not None and self.streams is not None:
             stream = [
                 gi_stream.name
                 for gi_stream in self.streams.values()
@@ -963,8 +977,8 @@ class CloudRequest:
         Returns:
             List[GIStreamVariable]: A list of variables for the given stream ID.
         """
-        if self.stream_variabels is not None:
-            return [v for v in self.stream_variabels.values() if v.sid == sid]
+        if self.stream_variables is not None:
+            return [v for v in self.stream_variables.values() if v.sid == sid]
 
         logging.info("No stream variables available.")
         return []
@@ -983,7 +997,8 @@ class CloudRequest:
         delimiter: str = ";",
         timezone: str = "UTC",
         aggregation: str = "avg",
-    ) -> pd.DataFrame | None:
+        batch: Optional[str] = None,
+    ) -> Optional[pd.DataFrame]:
         """
         Returns a CSV file with the data of a given list of variables.
 
@@ -1000,11 +1015,66 @@ class CloudRequest:
             delimiter (str, optional): Field delimiter for the CSV. Defaults to ";".
             timezone (str, optional): Timezone for the export. Defaults to "UTC".
             aggregation (str, optional): Aggregation type. Defaults to "avg".
+            batch (str, optional): Batch size for the export e.g "monthly", "yearly".
+             Defaults to None.
 
         Returns:
             Optional[pd.DataFrame]: The data as a pandas DataFrame if return_df is True,
             otherwise None.
         """
+        # Handle batch processing
+        if batch is not None:
+            if batch not in ['monthly', 'yearly']:
+                raise ValueError("batch must be 'monthly', 'yearly', or None")
+
+            intervals = self._generate_date_intervals(start, end, batch)
+            all_dfs = []
+
+            for i, (batch_start, batch_end) in enumerate(intervals):
+                logging.info(f"Fetching batch: {batch_start}-{batch_end}")
+                batch_df = self.get_data_as_csv(
+                    variables=variables,
+                    resolution=resolution,
+                    start=batch_start,
+                    end=batch_end,
+                    filepath=filepath,
+                    streaming=streaming,
+                    return_df=True,
+                    write_file=False,  # Prevent writing individual batch files
+                    decimal_sep=decimal_sep,
+                    delimiter=delimiter,
+                    timezone=timezone,
+                    aggregation=aggregation,
+                    batch=None,  # Prevent recursion
+                )
+                if batch_df is not None:
+                    if i == 0:
+                        all_dfs.append(batch_df)
+                    else:
+                        # Remove first four metadata rows from subsequent batches
+                        all_dfs.append(batch_df.iloc[3:])
+
+            if not all_dfs:
+                return None
+
+            combined_df = pd.concat(all_dfs, ignore_index=True)
+
+            if write_file:
+                streams = set()
+                for var in variables:
+                    stream = self._get_stream_name_for_sid_vid(var.sid, var.id)
+                    streams.add(stream)
+                filename = (f"{'_'.join(filter(None, streams))}_"
+                            f"{start}_{end}_{resolution}_{aggregation}.csv")
+                full_path = f"{filepath}{filename}"
+                combined_df.to_csv(
+                    full_path,
+                    sep=delimiter,
+                    decimal=decimal_sep,
+                    index=False,
+                )
+
+            return combined_df if return_df else None
         # Build query and filename
         substring = ""
         streams = set()
@@ -1090,6 +1160,33 @@ class CloudRequest:
 
         return None
 
+    def _generate_date_intervals(self, start_str: str, end_str: str, batch: str) -> \
+            List[Tuple[str, str]]:
+        """Generates monthly or yearly intervals between start and end dates."""
+        start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
+        end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S")
+        intervals = []
+        current_start = start_dt
+
+        while current_start < end_dt:
+            if batch == 'monthly':
+                next_start = (current_start.replace(day=1) + relativedelta.relativedelta(months=1))
+            elif batch == 'yearly':
+                next_start = (current_start.replace(month=1, day=1) + relativedelta.relativedelta(
+                    years=1))
+            else:
+                raise ValueError("Invalid batch parameter")
+
+            current_end = min(next_start, end_dt)  # Do NOT subtract seconds here!
+
+            current_start_str = current_start.strftime("%Y-%m-%d %H:%M:%S")
+            current_end_str = current_end.strftime("%Y-%m-%d %H:%M:%S")
+            intervals.append((current_start_str, current_end_str))
+
+            current_start = next_start
+
+        return intervals
+
     def __get_column_names(self, sid: str, index_list: List[str]) -> List[str]:
         """
         Private helper method to get the column names for the DataFrame.
@@ -1111,7 +1208,7 @@ class CloudRequest:
         return col_names
 
     @staticmethod
-    def convert_datetime_to_unix(datetime_str: str) -> float | None:
+    def convert_datetime_to_unix(datetime_str: str) -> Optional[float]:
         """
         Converts a datetime string to a Unix timestamp in milliseconds.
 
@@ -1182,7 +1279,7 @@ class CloudRequest:
         start_ts: int = 0,
         end_ts: int = 9999999999999,
         sort: str = "DESC",
-    ) -> dict | None:
+    ) -> Optional[dict]:
         """
         Retrieves measurement periods for a given stream ID (sid) with a specified limit.
         Timestamps cannot be floats!
@@ -1222,15 +1319,15 @@ class CloudRequest:
                 return self.request_measurement_res
             else:
                 logging.error(
-                    f"Fetching measurement info failed!"
-                    f" Response Code: {res.status_code}, Reason: {res.reason}"
+                    f"Fetching measurement info failed! "
+                    f"Response Code: {res.status_code}, Reason: {res.reason}"
                 )
         except requests.RequestException as err:
             logging.warning(f"Request error while fetching measurement info: {err}")
 
         return None
 
-    def print_measurement(self) -> np.ndarray | None:
+    def print_measurement(self) -> Optional[np.ndarray]:
         """
         Retrieves a list of measurement periods with their start and stop timestamps.
 
@@ -1253,7 +1350,7 @@ class CloudRequest:
         return measurement_list
 
     # ubdf importer
-    def _create_import_session_udbf(self, sid: str, stream_name: str) -> Union[dict, str] | None:
+    def _create_import_session_udbf(self, sid: str, stream_name: str) -> Optional[Union[dict, str]]:
         """
         Creates an import session for a UDBF file using the HTTP API.
 
@@ -1286,15 +1383,16 @@ class CloudRequest:
                 return self.import_session_res_udbf
             else:
                 logging.error(
-                    f"Creating import session failed!"
-                    f" Response Code: {res.status_code}, Reason: {res.reason}"
+                    f"Creating import session failed! "
+                    f"Response Code: {res.status_code}, Reason: {res.reason}"
                 )
         except requests.RequestException as err:
             logging.error(f"Failed to create import session: {err}")
 
         return None
 
-    def import_file_udbf(self, sid: str, stream_name: str, file: bytes) -> requests.Response | None:
+    def import_file_udbf(self, sid: str, stream_name: str, file: bytes) \
+            -> Optional[requests.Response]:
         """
         Imports a UDBF file using the HTTP API.
 
@@ -1304,9 +1402,6 @@ class CloudRequest:
         Returns:
             Optional[requests.Response]: The server response if the request is successful,
              otherwise None.
-             :param file:
-             :param stream_name:
-             :param sid:
         """
         self._create_import_session_udbf(sid, stream_name)
         if not self.import_session_res_udbf or "Data" not in self.import_session_res_udbf:
@@ -1341,7 +1436,7 @@ class CloudRequest:
         csv_config: CsvConfig,
         create_meta_data: bool = True,
         session_timeout: int = 60,
-    ) -> requests.Response | None:
+    ) -> Optional[requests.Response]:
         """
         Creates an import session for a CSV file using the HTTP API.
 
@@ -1391,7 +1486,7 @@ class CloudRequest:
 
         return None
 
-    def __import_file_csv(self, file: bytes) -> requests.Response | None:
+    def __import_file_csv(self, file: bytes) -> Optional[requests.Response]:
         """
         Imports a CSV file using the HTTP API.
 
@@ -1431,9 +1526,9 @@ class CloudRequest:
         self,
         stream_name: str,
         file_path: str,
-        py_formatter: str | None = None,
-        csv_config: CsvConfig | None = None,
-    ) -> str | None:
+        py_formatter: Optional[str] = None,
+        csv_config: Optional[CsvConfig] = None,
+    ) -> Optional[str]:
         """
         Performs preparatory functions for CSV import.
 
@@ -1442,9 +1537,6 @@ class CloudRequest:
             file_path (str): The path of the CSV file to be uploaded.
             py_formatter (Optional[str], optional): Python-specific date format if
             different from the backend format.
-            py_formatter is delivered if python parses dates differently than c++ (backend parsing)
-            e.g. py_formatterClmn1 = "%d.%m.%Y %H:%M:%S.%f" for python,
-            while DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F" for API config
             csv_config (Optional[CsvConfig], optional): Configuration settings for the CSV import.
 
         Returns:
@@ -1457,6 +1549,8 @@ class CloudRequest:
             # Use the Python formatter if provided, otherwise use the default from csv_config
             if py_formatter is None:
                 py_formatterClmn1 = self.csv_config.DateTimeFmtColumn1
+            else:
+                py_formatterClmn1 = py_formatter
 
             first_lines = pd.read_csv(file_path, encoding="utf-8", nrows=10, sep=";")
             read_date = first_lines.iat[self.csv_config.ValuesStartRowIndex - 1, 0]
@@ -1495,8 +1589,8 @@ class CloudRequest:
         # **************************************
         #    Check if stream exists
         # **************************************
-        if (self.streams is not None and
-                any(stream.name == stream_name for stream in self.streams.values())):
+        if (self.streams is not None
+                and any(stream.name == stream_name for stream in self.streams.values())):
             for stream_id, stream in self.streams.items():
                 if stream.name == stream_name:
                     write_ID = stream.id
@@ -1528,7 +1622,8 @@ class CloudRequest:
                         timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp / 1000)
                         logging.info(
                             f"Last UTC imported timestamp:"
-                            f" {(last_timestamp / 1000)}, {timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')}"
+                            f" {(last_timestamp / 1000)}, "
+                            f"{timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')}"
                         )
             except AttributeError:
                 logging.warning("Stream exists but no last timestamp found.")
@@ -1593,7 +1688,7 @@ class CloudRequest:
 
         return session_is_valid
 
-    def delete_import_session(self) -> requests.Response | None:
+    def delete_import_session(self) -> Optional[requests.Response]:
         """
         Deletes the current import session using the HTTP API.
 
@@ -1626,7 +1721,7 @@ class CloudRequest:
     # Read and Write Single Values out of live datastreams
     # Notice postprocessed data do not work with this functions !
 
-    def read_value(self, var_ids: List[str]) -> List[Any] | None:
+    def read_value(self, var_ids: List[str]) -> Optional[List[Any]]:
         """
         Reads online values for a list of variable IDs.
 
@@ -1656,7 +1751,7 @@ class CloudRequest:
 
         return None
 
-    def write_value_on_channel(self, var_ids: List[str], write_list: List[Any]) -> dict | None:
+    def write_value_on_channel(self, var_ids: List[str], write_list: List[Any]) -> Optional[dict]:
         """
         Writes values to a list of variable IDs.
 
@@ -1700,7 +1795,7 @@ class CloudRequest:
             variables (List[str]): A list of variable names.
 
         Returns:
-            List[Optional[GIStreamVariable]]: A list of GIStreamVariable instances if found,
+            List[GIStreamVariable]: A list of GIStreamVariable instances if found,
             otherwise None for each not found.
         """
         gi_vars = []
@@ -1745,7 +1840,7 @@ class CloudRequest:
         - target (Optional[str]): For DataFormat.UDBF format. Options: 'file', 'record'.
 
         Returns:
-        - Union[Dict, str, bytes]: The response data from the API.
+        - Union[Dict, bytes]: The response data from the API.
 
         Raises:
         - requests.HTTPError: If the API request fails.
