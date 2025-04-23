@@ -12,9 +12,9 @@ VERSION = '0.2.0'
 DESCRIPTION = 'Python package to deliver a Gantner cloud interface'
 LONG_DESCRIPTION = ''
 
-if sys.version_info.major == 3 and sys.version_info.minor == 7:
+if sys.version_info[:2] == (3, 7):
     req_file = 'requirements37.txt'
-if sys.version_info.major == 3 and sys.version_info.minor == 12:
+elif sys.version_info[:2] == (3, 12):
     req_file = 'requirements312.txt'
 else:
     req_file = 'requirements.txt'
