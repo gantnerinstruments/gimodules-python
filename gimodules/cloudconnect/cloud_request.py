@@ -44,6 +44,7 @@ class CsvConfig:
     DateTimeFmtColumn1: str = "%d.%m.%Y %H:%M:%S.%F"
     DateTimeFmtColumn2: str = ""
     DateTimeFmtColumn3: str = ""
+    SourceID: str = ""
 
     def get_config(self):
         """returns config as dict"""
@@ -57,6 +58,7 @@ class CsvConfig:
             "DateTimeFmtColumn1": self.DateTimeFmtColumn1,
             "DateTimeFmtColumn2": self.DateTimeFmtColumn2,
             "DateTimeFmtColumn3": self.DateTimeFmtColumn3,
+            "SourceID": self.SourceId,
         }
 
 
@@ -1589,8 +1591,22 @@ class CloudRequest:
         # **************************************
         #    Check if stream exists
         # **************************************
-        if (self.streams is not None
-                and any(stream.name == stream_name for stream in self.streams.values())):
+        active_csv_cfg = csv_config or self.csv_config
+
+        # 1️⃣  Use a SourceID that was explicitly supplied in CsvConfig
+        if getattr(active_csv_cfg, "SourceID", "").strip():
+            provided_id = active_csv_cfg.SourceID.strip()
+            if utils.is_valid_uuid(provided_id):
+                write_ID = provided_id
+                reprise = 0  # Treat it as a new stream unless it already exists
+                logging.info(f"Using SourceID from CsvConfig: {write_ID}")
+            else:
+                logging.error(f"SourceID in CsvConfig is not a valid UUID: {provided_id}")
+                return None
+
+        # 2️⃣  A stream with the same name already exists in GI.Cloud – keep using it
+        elif (self.streams is not None
+              and any(stream.name == stream_name for stream in self.streams.values())):
             for stream_id, stream in self.streams.items():
                 if stream.name == stream_name:
                     write_ID = stream.id
@@ -1599,14 +1615,17 @@ class CloudRequest:
                         f"Stream already exists in GI.Cloud. "
                         f"Continuing import for stream ID: {write_ID}"
                     )
+
+        # 3️⃣  No SourceID given and no existing stream – generate a brand-new UUID
         else:
             write_ID = str(uuid.uuid4())
             reprise = 0
             logging.info(
-                f"Stream not found in GI.Cloud. Initializing import for new stream ID: {write_ID}"
+                f"Stream not found in GI.Cloud. "
+                f"Initializing import for new stream ID: {write_ID}"
             )
 
-        # Validate UUID
+        # Validate UUID (covers all three paths)
         if not utils.is_valid_uuid(write_ID):
             logging.error(f"Invalid UUID: {write_ID}")
             return None
