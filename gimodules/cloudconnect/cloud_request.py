@@ -58,7 +58,7 @@ class CsvConfig:
             "DateTimeFmtColumn1": self.DateTimeFmtColumn1,
             "DateTimeFmtColumn2": self.DateTimeFmtColumn2,
             "DateTimeFmtColumn3": self.DateTimeFmtColumn3,
-            "SourceID": self.SourceId,
+            "SourceID": self.SourceID,
         }
 
 
