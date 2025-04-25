@@ -1660,6 +1660,11 @@ class CloudRequest:
             if not self.__import_session_valid(write_ID):
                 self.create_import_session_csv(write_ID, stream_name, csv_config)
 
+            logging.info(
+                f"Starting import: stream_name='{stream_name}', stream_id='{write_ID}', "
+                f"csv_start_ts={csv_timestamp}, csv_file='{file_path}'"
+            )
+
             try:
                 with open(file_path, "rb") as f:
                     data_upload = f.read()
