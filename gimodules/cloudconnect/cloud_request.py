@@ -1633,23 +1633,22 @@ class CloudRequest:
         # **************************************
         #    Check last imported timestamps
         # **************************************
-        if reprise == 1 and self.streams is not None:
+        last_timestamp = 0
+        if self.streams is not None:
             try:
-                for _, stream in self.streams.items():
-                    if stream.name == stream_name:
+                for stream in self.streams.values():
+                    if stream.id == write_ID:
                         last_timestamp = stream.last_ts
                         timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp / 1000)
                         logging.info(
-                            f"Last UTC imported timestamp:"
-                            f" {(last_timestamp / 1000)}, "
+                            f"Last UTC imported timestamp: {(last_timestamp / 1000)}, "
                             f"{timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')}"
                         )
+                        break
             except AttributeError:
                 logging.warning("Stream exists but no last timestamp found.")
-                last_timestamp = 0
         else:
-            last_timestamp = 0
-            logging.info(f"Stream is empty. Last timestamp: {last_timestamp}")
+            logging.info(f"Stream not found. Last timestamp: {last_timestamp}")
 
         # **************************************
         #    Upload the file
