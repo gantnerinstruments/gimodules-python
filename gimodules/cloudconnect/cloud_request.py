@@ -1422,13 +1422,13 @@ class CloudRequest:
                 logging.info("UDBF file successfully imported.")
                 return res
             else:
-                logging.error(
-                    f"Import failed! Response Code: {res.status_code}, Reason: {res.reason}"
-                )
+                msg = f"Import failed! Response Code: {res.status_code}, Reason: {res.reason}"
+                logging.error(msg)
+                raise RuntimeError(msg)
+
         except requests.RequestException as err:
             logging.error(f"Failed to import UDBF file: {err}")
-
-        return None
+            raise
 
     # csv importer
     def create_import_session_csv(
@@ -1516,13 +1516,13 @@ class CloudRequest:
                 logging.info("CSV file successfully imported.")
                 return res
             else:
-                logging.error(
-                    f"Import failed! Response Code: {res.status_code}, Reason: {res.reason}"
-                )
+                msg = f"Import failed! Response Code: {res.status_code}, Reason: {res.reason}"
+                logging.error(msg)
+                raise RuntimeError(msg)
+
         except requests.RequestException as e:
             logging.error(f"Failed to import CSV file: {e}")
-
-        return None
+            raise
 
     def upload_csv_file(
         self,
@@ -1675,19 +1675,16 @@ class CloudRequest:
                     logging.info(f"Import of {file_path} was successful")
                     return write_ID
                 else:
-                    logging.error(
-                        f"Import failed! Response Code:"
-                        f" {response.status_code if response else 'N/A'}, "
+                    msg = (
+                        f"Import failed! Response Code: {response.status_code if response else 'N/A'}, "
                         f"Reason: {response.reason if response else 'No response'}"
                     )
+                    logging.error(msg)
+                    raise RuntimeError(msg)
+
             except Exception as e:
                 logging.error(f"Error during file upload: {e}")
-        else:
-            logging.error(
-                "Import failed: The first CSV value is before the last database timestamp. "
-                "The import must begin after the last timestamp."
-            )
-
+                raise RuntimeError(f"Upload failed: {e}")
         return None
 
     def __import_session_valid(self, stream_id: str) -> bool:
