@@ -1524,11 +1524,12 @@ class CloudRequest:
             if res.status_code == 200:
                 logging.info("CSV file successfully imported.")
                 return res
-            else: # extract error message
+            else:  # extract error message
                 error_detail = "No additional error details"
                 try:
                     json_data = res.json()
-                    error_detail = json_data.get("message") or json_data.get("error") or str(json_data)
+                    error_detail = (json_data.get("message") or json_data.get("error")
+                                    or str(json_data))
                 except ValueError:
                     if res.text:
                         error_detail = res.text.strip()
