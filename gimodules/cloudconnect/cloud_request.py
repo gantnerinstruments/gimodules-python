@@ -1593,41 +1593,38 @@ class CloudRequest:
         # **************************************
         active_csv_cfg = csv_config or self.csv_config
 
-        # 1️⃣  Use a SourceID that was explicitly supplied in CsvConfig
+        # Use a SourceID that was explicitly supplied in CsvConfig
         if getattr(active_csv_cfg, "SourceID", "").strip():
             provided_id = active_csv_cfg.SourceID.strip()
             if utils.is_valid_uuid(provided_id):
-                write_ID = provided_id
-                reprise = 0  # Treat it as a new stream unless it already exists
-                logging.info(f"Using SourceID from CsvConfig: {write_ID}")
+                write_id = provided_id
+                logging.info(f"Using SourceID from CsvConfig: {write_id}")
             else:
                 logging.error(f"SourceID in CsvConfig is not a valid UUID: {provided_id}")
                 return None
 
-        # 2️⃣  A stream with the same name already exists in GI.Cloud – keep using it
+        # A stream with the same name already exists in GI.Cloud – keep using it
         elif (self.streams is not None
               and any(stream.name == stream_name for stream in self.streams.values())):
             for stream_id, stream in self.streams.items():
                 if stream.name == stream_name:
-                    write_ID = stream.id
-                    reprise = 1
+                    write_id = stream.id
                     logging.info(
                         f"Stream already exists in GI.Cloud. "
-                        f"Continuing import for stream ID: {write_ID}"
+                        f"Continuing import for stream ID: {write_id}"
                     )
 
-        # 3️⃣  No SourceID given and no existing stream – generate a brand-new UUID
+        # No SourceID given and no existing stream – generate a brand-new UUID
         else:
-            write_ID = str(uuid.uuid4())
-            reprise = 0
+            write_id = str(uuid.uuid4())
             logging.info(
                 f"Stream not found in GI.Cloud. "
-                f"Initializing import for new stream ID: {write_ID}"
+                f"Initializing import for new stream ID: {write_id}"
             )
 
         # Validate UUID (covers all three paths)
-        if not utils.is_valid_uuid(write_ID):
-            logging.error(f"Invalid UUID: {write_ID}")
+        if not utils.is_valid_uuid(write_id):
+            logging.error(f"Invalid UUID: {write_id}")
             return None
 
         # **************************************
@@ -1637,7 +1634,7 @@ class CloudRequest:
         if self.streams is not None:
             try:
                 for stream in self.streams.values():
-                    if stream.id == write_ID:
+                    if stream.id == write_id:
                         last_timestamp = stream.last_ts
                         timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp / 1000)
                         logging.info(
@@ -1657,11 +1654,11 @@ class CloudRequest:
 
         if csv_timestamp > last_timestamp / 1000:
             # Reuse import session if possible
-            if not self.__import_session_valid(write_ID):
-                self.create_import_session_csv(write_ID, stream_name, csv_config)
+            if not self.__import_session_valid(write_id):
+                self.create_import_session_csv(write_id, stream_name, csv_config)
 
             logging.info(
-                f"Starting import: stream_name='{stream_name}', stream_id='{write_ID}', "
+                f"Starting import: stream_name='{stream_name}', stream_id='{write_id}', "
                 f"csv_start_ts={csv_timestamp}, csv_file='{file_path}'"
             )
 
@@ -1673,7 +1670,7 @@ class CloudRequest:
 
                 if response and response.status_code == 200:
                     logging.info(f"Import of {file_path} was successful")
-                    return write_ID
+                    return write_id
                 else:
                     msg = (
                         f"Import failed! Response Code: {response.status_code if response else 'N/A'}, "
