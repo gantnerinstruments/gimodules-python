@@ -1670,6 +1670,8 @@ class CloudRequest:
 
                 if response and response.status_code == 200:
                     logging.info(f"Import of {file_path} was successful")
+
+                    self._delete_import_session()
                     return write_id
                 else:
                     msg = (
@@ -1705,7 +1707,7 @@ class CloudRequest:
 
         return session_is_valid
 
-    def delete_import_session(self) -> Optional[requests.Response]:
+    def _delete_import_session(self) -> Optional[requests.Response]:
         """
         Deletes the current import session using the HTTP API.
 
