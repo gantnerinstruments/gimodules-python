@@ -45,8 +45,13 @@ class CsvConfig:
     DateTimeFmtColumn2: str = ""
     DateTimeFmtColumn3: str = ""
     SourceID: str = ""
+    RetentionTime: int = 0
+    Target: str = "stream"
+    TimeOffSetSec: int = 0
+    AddTimeSeries: bool = False
+    MeasID: str = ""
 
-    def get_config(self):
+    def get_CSVSettings(self):
         """returns config as dict"""
         return {
             "ColumnSeparator": self.ColumnSeparator,
@@ -1459,12 +1464,15 @@ class CloudRequest:
             "Type": "csv",
             "SourceID": stream_ID,
             "SourceName": stream_Name,
-            "MeasID": "",
             "SessionTimeoutSec": str(session_timeout),
-            "AddTimeSeries": "false",
             "SampleRate": "-1",
             "AutoCreateMetaData": str(create_meta_data).lower(),
-            "CSVSettings": csv_config.get_config(),
+            "CSVSettings": csv_config.get_CSVSettings(),
+            "RetentionTimeSec": csv_config.RetentionTime,
+            "Target": csv_config.Target,
+            "TimeOffsetSec": csv_config.TimeOffSetSec,
+            "AddTimeSeries": csv_config.AddTimeSeries,
+            "MeasID": csv_config.MeasID
         }
 
         try:
@@ -1512,11 +1520,25 @@ class CloudRequest:
 
         try:
             res = requests.post(url_list, headers=headers, data=file)
+
             if res.status_code == 200:
                 logging.info("CSV file successfully imported.")
                 return res
-            else:
-                msg = f"Import failed! Response Code: {res.status_code}, Reason: {res.reason}"
+            else: # extract error message
+                error_detail = "No additional error details"
+                try:
+                    json_data = res.json()
+                    error_detail = json_data.get("message") or json_data.get("error") or str(json_data)
+                except ValueError:
+                    if res.text:
+                        error_detail = res.text.strip()
+
+                msg = (
+                    f"Import failed! "
+                    f"Response Code: {res.status_code}, "
+                    f"Reason: {res.reason}, "
+                    f"Detail: {error_detail}"
+                )
                 logging.error(msg)
                 raise RuntimeError(msg)
 
@@ -1525,166 +1547,111 @@ class CloudRequest:
             raise
 
     def upload_csv_file(
-        self,
-        stream_name: str,
-        file_path: str,
-        py_formatter: Optional[str] = None,
-        csv_config: Optional[CsvConfig] = None,
+            self,
+            stream_name: str,
+            file_path: str,
+            py_formatter: Optional[str] = None,
+            csv_config: Optional[CsvConfig] = None,
     ) -> Optional[str]:
         """
-        Performs preparatory functions for CSV import.
+        Import *file_path* into GI.Cloud and return the stream UUID.
 
-        Args:
-            stream_name (str): The name of the stream to upload the CSV to.
-            file_path (str): The path of the CSV file to be uploaded.
-            py_formatter (Optional[str], optional): Python-specific date format if
-            different from the backend format.
-            csv_config (Optional[CsvConfig], optional): Configuration settings for the CSV import.
+        Returns ``None`` when
+        - the CSV contains no newer data than already stored, or
+        - the CSV header can’t be parsed, or
+        - the given / generated stream ID is not a valid UUID.
 
-        Returns:
-            Optional[str]: The stream ID if the upload is successful, otherwise None.
+        Raises ``RuntimeError`` only when the HTTP upload itself fails.
         """
-        # **************************************
-        #    Read and check the CSV file
-        # **************************************
+        cfg = csv_config or self.csv_config
+
         try:
-            # Use the Python formatter if provided, otherwise use the default from csv_config
-            if py_formatter is None:
-                py_formatterClmn1 = self.csv_config.DateTimeFmtColumn1
-            else:
-                py_formatterClmn1 = py_formatter
-
-            first_lines = pd.read_csv(file_path, encoding="utf-8", nrows=10, sep=";")
-            read_date = first_lines.iat[self.csv_config.ValuesStartRowIndex - 1, 0]
-            read_date = Helpers.remove_hex_from_string(read_date)
-
-            # Parse the date and time based on the configuration
-            if not self.csv_config.DateTimeFmtColumn2 and not self.csv_config.DateTimeFmtColumn3:
-                date_time_obj = dt.datetime.strptime(
-                    read_date + ";",
-                    py_formatterClmn1 + ";" + self.csv_config.DateTimeFmtColumn2,
-                )
-            elif self.csv_config.DateTimeFmtColumn2:
-                read_time = first_lines.iat[self.csv_config.ValuesStartRowIndex - 1, 1]
-                date_time_obj = dt.datetime.strptime(
-                    read_date + ";" + read_time,
-                    py_formatterClmn1 + ";" + self.csv_config.DateTimeFmtColumn2,
-                )
-
-            # Convert to UTC and then to the target timezone
-            csv_timestamp_utc = date_time_obj.replace(tzinfo=tz.gettz("UTC"))
-            csv_timestamp_local = csv_timestamp_utc.astimezone(tz.gettz("Europe/Paris"))
-            csv_timestamp = dt.datetime.timestamp(csv_timestamp_local)
-        except FileNotFoundError:
-            logging.error(f"File not found: {file_path}")
-            return None
-        except Exception as e:
-            logging.error(f"Could not read the CSV file. Please check the configuration: {e}")
+            first_ts = self._parse_first_timestamp(file_path, cfg, py_formatter)
+        except Exception as exc:
+            logging.error("Could not parse first timestamp in %s: %s", file_path, exc)
             return None
 
-        # Log the first CSV timestamp
-        timestamp_tmp = dt.datetime.fromtimestamp(csv_timestamp)
-        logging.info(
-            f"First CSV timestamp: {csv_timestamp}, {timestamp_tmp.strftime('%d.%m.%Y %H:%M:%S')}"
+        try:
+            stream_id = self._resolve_stream_id(stream_name, cfg)
+        except ValueError as exc:  # invalid SourceID
+            logging.error(exc)
+            return None
+
+        if first_ts <= self._last_import_ts(stream_id):
+            logging.info("CSV contains no newer data – skipping import.")
+            return None
+
+        # open / reuse session  ➜ upload ➜ close
+        self._require_csv_session(stream_id, stream_name, cfg)
+        self._upload_csv_binary(file_path)
+        self._delete_import_session()
+
+        logging.info("CSV %s imported successfully into stream %s", file_path, stream_id)
+        return stream_id
+
+    @staticmethod
+    def _parse_first_timestamp(
+            path: str,
+            cfg: CsvConfig,
+            py_fmt_override: Optional[str],
+    ) -> float:
+        """Return the first sample’s POSIX seconds as *float*."""
+        py_fmt_1 = py_fmt_override or cfg.DateTimeFmtColumn1
+
+        rows = pd.read_csv(
+            path,
+            nrows=cfg.ValuesStartRowIndex,
+            sep=cfg.ColumnSeparator,
+            encoding="utf-8",
+        )
+        date_str = Helpers.remove_hex_from_string(
+            rows.iat[cfg.ValuesStartRowIndex - 1, 0]
+        )
+        time_str = (
+            rows.iat[cfg.ValuesStartRowIndex - 1, 1]
+            if cfg.DateTimeFmtColumn2
+            else ""
         )
 
-        # **************************************
-        #    Check if stream exists
-        # **************************************
-        active_csv_cfg = csv_config or self.csv_config
+        fmt = ";".join(filter(None, (py_fmt_1, cfg.DateTimeFmtColumn2)))
+        raw = ";".join(filter(None, (date_str, time_str)))
+        naive = dt.datetime.strptime(raw, fmt)
+        aware = naive.replace(tzinfo=tz.gettz("UTC"))
+        return aware.timestamp()
 
-        # Use a SourceID that was explicitly supplied in CsvConfig
-        if getattr(active_csv_cfg, "SourceID", "").strip():
-            provided_id = active_csv_cfg.SourceID.strip()
-            if utils.is_valid_uuid(provided_id):
-                write_id = provided_id
-                logging.info(f"Using SourceID from CsvConfig: {write_id}")
-            else:
-                logging.error(f"SourceID in CsvConfig is not a valid UUID: {provided_id}")
-                return None
+    def _resolve_stream_id(self, name: str, cfg: CsvConfig) -> str:
+        """
+        Decide which stream UUID to use (supplied, existing, or fresh).
+        Raises ``ValueError`` if *SourceID* is present but not a valid UUID.
+        """
+        if cfg.SourceID.strip():  # 1 explicit
+            sid = cfg.SourceID.strip()
+            if not utils.is_valid_uuid(sid):
+                raise ValueError(f"Invalid SourceID in CsvConfig: {sid}")
+            return sid
 
-        # A stream with the same name already exists in GI.Cloud – keep using it
-        elif (self.streams is not None
-              and any(stream.name == stream_name for stream in self.streams.values())):
-            for stream_id, stream in self.streams.items():
-                if stream.name == stream_name:
-                    write_id = stream.id
-                    logging.info(
-                        f"Stream already exists in GI.Cloud. "
-                        f"Continuing import for stream ID: {write_id}"
-                    )
+        if self.streams:  # 2 reuse
+            for s in self.streams.values():
+                if s.name == name:
+                    return s.id
 
-        # No SourceID given and no existing stream – generate a brand-new UUID
-        else:
-            write_id = str(uuid.uuid4())
-            logging.info(
-                f"Stream not found in GI.Cloud. "
-                f"Initializing import for new stream ID: {write_id}"
-            )
+        return str(uuid.uuid4())
 
-        # Validate UUID (covers all three paths)
-        if not utils.is_valid_uuid(write_id):
-            logging.error(f"Invalid UUID: {write_id}")
-            return None
+    def _last_import_ts(self, stream_id: str) -> float:
+        """Return last imported timestamp (seconds) or 0.0."""
+        if self.streams and stream_id in self.streams:
+            return self.streams[stream_id].last_ts / 1000
+        return 0.0
 
-        # **************************************
-        #    Check last imported timestamps
-        # **************************************
-        last_timestamp = 0
-        if self.streams is not None:
-            try:
-                for stream in self.streams.values():
-                    if stream.id == write_id:
-                        last_timestamp = stream.last_ts
-                        timestamp_end_s = dt.datetime.utcfromtimestamp(last_timestamp / 1000)
-                        logging.info(
-                            f"Last UTC imported timestamp: {(last_timestamp / 1000)}, "
-                            f"{timestamp_end_s.strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
-                        break
-            except AttributeError:
-                logging.warning("Stream exists but no last timestamp found.")
-        else:
-            logging.info(f"Stream not found. Last timestamp: {last_timestamp}")
+    def _require_csv_session(self, sid: str, name: str, cfg: CsvConfig) -> None:
+        """Ensure a valid CSV import session exists for *sid*."""
+        if not self.__import_session_valid(sid):
+            self.create_import_session_csv(sid, name, cfg)
 
-        # **************************************
-        #    Upload the file
-        # **************************************
-        csv_config = csv_config or self.csv_config
-
-        if csv_timestamp > last_timestamp / 1000:
-            # Reuse import session if possible
-            if not self.__import_session_valid(write_id):
-                self.create_import_session_csv(write_id, stream_name, csv_config)
-
-            logging.info(
-                f"Starting import: stream_name='{stream_name}', stream_id='{write_id}', "
-                f"csv_start_ts={csv_timestamp}, csv_file='{file_path}'"
-            )
-
-            try:
-                with open(file_path, "rb") as f:
-                    data_upload = f.read()
-
-                response = self.__import_file_csv(data_upload)
-
-                if response and response.status_code == 200:
-                    logging.info(f"Import of {file_path} was successful")
-
-                    self._delete_import_session()
-                    return write_id
-                else:
-                    msg = (
-                        f"Import failed! Response Code: {response.status_code if response else 'N/A'}, "
-                        f"Reason: {response.reason if response else 'No response'}"
-                    )
-                    logging.error(msg)
-                    raise RuntimeError(msg)
-
-            except Exception as e:
-                logging.error(f"Error during file upload: {e}")
-                raise RuntimeError(f"Upload failed: {e}")
-        return None
+    def _upload_csv_binary(self, file_path: str) -> None:
+        """Read *file_path* once and hand bytes to ``__import_file_csv``."""
+        with open(file_path, "rb") as fh:
+            self.__import_file_csv(fh.read())
 
     def __import_session_valid(self, stream_id: str) -> bool:
         """
