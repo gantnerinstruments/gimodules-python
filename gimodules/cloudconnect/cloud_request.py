@@ -1644,7 +1644,7 @@ class CloudRequest:
     def _last_import_ts(self, stream_id: str) -> float:
         """Return last imported timestamp (seconds) or 0.0."""
         if self.streams and stream_id in self.streams:
-            return self.streams[stream_id].last_ts / 1000
+            return float(self.streams[stream_id].last_ts) / 1000
         return 0.0
 
     def _require_csv_session(self, sid: str, name: str, cfg: CsvConfig) -> None:
