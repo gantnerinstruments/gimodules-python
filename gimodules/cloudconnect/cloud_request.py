@@ -15,6 +15,7 @@ import uuid
 import time
 import logging
 import pytz
+from pathlib import Path
 
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Union, Any, Type, cast, Tuple
@@ -1073,6 +1074,7 @@ class CloudRequest:
                     streams.add(stream)
                 filename = (f"{'_'.join(filter(None, streams))}_"
                             f"{start}_{end}_{resolution}_{aggregation}.csv")
+                filename = utils.sanitize_filename(filename)
                 full_path = f"{filepath}{filename}"
                 combined_df.to_csv(
                     full_path,
@@ -1094,6 +1096,7 @@ class CloudRequest:
             }},"""
 
         filename = f"{'_'.join(filter(None, streams))}_{start}_{end}_{resolution}_{aggregation}.csv"
+        filename = utils.sanitize_filename(filename)
         start_unix = str(self.convert_datetime_to_unix(start))
         end_unix = str(self.convert_datetime_to_unix(end))
         self.query = f"""
@@ -1651,7 +1654,8 @@ class CloudRequest:
 
     def _upload_csv_binary(self, file_path: str) -> None:
         """Read *file_path* once and hand bytes to ``__import_file_csv``."""
-        with open(file_path, "rb") as fh:
+        path = Path(file_path)
+        with path.open("rb") as fh:
             self.__import_file_csv(fh.read())
 
     def __import_session_valid(self, stream_id: str) -> bool:
