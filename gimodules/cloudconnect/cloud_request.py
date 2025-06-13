@@ -1522,6 +1522,9 @@ class CloudRequest:
         }
 
         try:
+            logging.info(
+                "Uploading CSV (%d bytes) to %s ... (no progress indication)", len(file), url_list
+            )
             res = requests.post(url_list, headers=headers, data=file)
 
             if res.status_code == 200:
@@ -1582,7 +1585,12 @@ class CloudRequest:
             return None
 
         if first_ts <= self._last_import_ts(stream_id):
-            logging.info("CSV contains no newer data – skipping import.")
+            logging.info(
+                "Skipping import for stream '%s': CSV first timestamp (%s) <= last imported timestamp (%s).",
+                stream_id,
+                first_ts,
+                self._last_import_ts(stream_id),
+            )
             return None
 
         # open / reuse session  ➜ upload ➜ close
@@ -1655,6 +1663,11 @@ class CloudRequest:
     def _upload_csv_binary(self, file_path: str) -> None:
         """Read *file_path* once and hand bytes to ``__import_file_csv``."""
         path = Path(file_path)
+        file_size_mb = path.stat().st_size / (1024 * 1024)
+        logging.info(
+            "Starting CSV import: %s (%.2f MB)", path.name, file_size_mb
+        )
+
         with path.open("rb") as fh:
             self.__import_file_csv(fh.read())
 
