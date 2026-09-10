@@ -188,8 +188,12 @@ class HTTPTimeSeriesDriver(BaseDriver):
             *,
             start_ms: float,
             end_ms: float,
-            points: int = 2048,
+            points: Optional[int] = None,
+            resolution: Optional[Resolution] = None,
     ) -> pd.DataFrame:
+        if resolution is not None:
+            raise NotImplementedError("Explicit fetch resolution is supported only on cloud backends")
+        points = 2048 if points is None else points
         vars_ = [s for s in selectors]
         req = BufferRequest(Start=start_ms, End=end_ms, Points=points, Variables=vars_)
 
@@ -210,8 +214,12 @@ class HTTPTimeSeriesDriver(BaseDriver):
             measurement_id: UUID,
             start_ms: float = 0,
             end_ms: float = 0,
-            points: int = 2048,
+            points: Optional[int] = None,
+            resolution: Optional[Resolution] = None,
     ) -> pd.DataFrame:
+        if resolution is not None:
+            raise NotImplementedError("Explicit fetch resolution is supported only on cloud backends")
+        points = 2048 if points is None else points
         # Apply measurement selection to each selector
         vars_ = [
             VarSelector(

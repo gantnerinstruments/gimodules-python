@@ -158,11 +158,19 @@ class GIDataClient:
             *,
             start_ms: float = -20_000,
             end_ms: float = 0,
-            points: int = 2048,
+            points: Optional[int] = None,
+            resolution: Optional[Resolution] = None,
     ) -> pd.DataFrame:
+        """Fetch buffer data with an approximate point budget (default 2048).
+
+        Since we do NOT have LTTB on cloud:
+        On cloud, use resolution like Resolution.RAW
+        points will only convert the the next near resolution
+        """
         return _run(
             self._drivers["buffer"].fetch_buffer(
-                selectors, start_ms=start_ms, end_ms=end_ms, points=points
+                selectors, start_ms=start_ms, end_ms=end_ms, points=points,
+                resolution=resolution,
             )
         )
 
@@ -262,8 +270,15 @@ class GIDataClient:
             *,
             start_ms: float = 0,
             end_ms: float = 0,
-            points: int = 2048,
+            points: Optional[int] = None,
+            resolution: Optional[Resolution] = None,
     ) -> pd.DataFrame:
+        """Fetch history with the same points/resolution controls as fetch_buffer.
+
+        Cloud resolution selects server averages (RAW/NANOS selects original
+        samples), without local thinning. Cloud ignores measurement_id.
+        Omitting both controls retains the default 2048-point budget.
+        """
         return _run(
             self._drivers["history"].fetch_history(
                 selectors,
@@ -271,6 +286,7 @@ class GIDataClient:
                 start_ms=start_ms,
                 end_ms=end_ms,
                 points=points,
+                resolution=resolution,
             )
         )
 

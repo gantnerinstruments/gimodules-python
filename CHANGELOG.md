@@ -1,3 +1,9 @@
+## [0.5.3]
+
+### Changed
+
+- Enable all resolutions options on fetch_history / fetch_buffer for GI.cloud exports
+
 ## [0.5.2]
 
 ### Fixed
