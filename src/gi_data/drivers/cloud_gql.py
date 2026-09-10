@@ -18,6 +18,32 @@ from ..utils.logging import setup_module_logger
 
 logger = setup_module_logger(__name__, level=logging.INFO)
 
+_ANALYTICS_INTERVALS_MS = (
+    (Resolution.MONTH, 30 * 24 * 60 * 60 * 1000),  # Nominal month for density estimation.
+    (Resolution.WEEK, 7 * 24 * 60 * 60 * 1000),
+    (Resolution.DAY, 24 * 60 * 60 * 1000),
+    (Resolution.HOUR, 60 * 60 * 1000),
+    (Resolution.QUARTER_HOUR, 15 * 60 * 1000),
+    (Resolution.MINUTE, 60 * 1000),
+    (Resolution.SECOND, 1000),
+    (Resolution.HZ10, 100),
+    (Resolution.HZ100, 10),
+    (Resolution.KHZ, 1),
+    (Resolution.KHZ10, 0.1),
+)
+
+
+def _resolution_for_points(duration_ms: int, points: float) -> Optional[Resolution]:
+    if not math.isfinite(points) or points < 0:
+        raise ValueError("points must be finite and non-negative")
+    if points == 0:
+        return None
+    interval_ms = duration_ms / points
+    return next(
+        (resolution for resolution, width in _ANALYTICS_INTERVALS_MS if width <= interval_ms),
+        None,
+    )
+
 
 def _now_ms() -> int:
     return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
@@ -222,7 +248,7 @@ class CloudGQLDriver(BaseDriver):
             "Function": "write",
         })
 
-    # --- buffer (cloud => GraphQL Raw) --------------------------------
+    # --- buffer (cloud => GraphQL analytics or Raw) --------------------
 
     async def fetch_buffer(
             self,
@@ -230,9 +256,19 @@ class CloudGQLDriver(BaseDriver):
             *,
             start_ms: float = -20_000,
             end_ms: float = 0,
-            points: int = 2048,
+            points: Optional[int] = None,
+            resolution: Optional[Resolution] = None,
     ) -> pd.DataFrame:
+        """Fetch a fixed resolution without thinning, or an approximate point budget."""
+        if resolution is not None:
+            if points is not None:
+                raise ValueError("Specify either points or resolution, not both")
+            if not isinstance(resolution, Resolution):
+                raise TypeError("resolution must be a Resolution enum member")
         frm, to = _window(start_ms, end_ms)
+        if resolution is None:
+            points = 2048 if points is None else points
+            resolution = _resolution_for_points(to - frm, points)
         by_sid: Dict[str, List[UUID]] = defaultdict(list)
         for selector in selectors:
             by_sid[str(selector.SID)].append(selector.VID)
@@ -240,18 +276,36 @@ class CloudGQLDriver(BaseDriver):
         frames: List[pd.DataFrame] = []
         for sid, vids in by_sid.items():
             fields = await self._vid_to_fieldnames(sid, vids)
-            cols = '", "'.join(fields)
-            q = f'''
-            {{
-              Raw(columns: ["ts", "nanos", "{cols}"], sid: "{sid}", from: {frm}, to: {to}) {{
-                data
-              }}
-            }}'''
-            data = await self._gql(q)
-            rows = data.get("Raw", {}).get("data", [])
-            if not rows:
-                continue
-            df = _to_frame_from_raw(rows, vids)
+            if resolution in (None, Resolution.RAW, Resolution.NANOS):
+                cols = '", "'.join(fields)
+                q = f'''
+                {{
+                  Raw(columns: ["ts", "nanos", "{cols}"], sid: "{sid}", from: {frm}, to: {to}) {{
+                    data
+                  }}
+                }}'''
+                data = await self._gql(q)
+                rows = data.get("Raw", {}).get("data", [])
+                if not rows:
+                    continue
+                df = _to_frame_from_raw(rows, vids)
+            else:
+                columns = " ".join(f"{field} {{ avg }}" for field in fields)
+                q = f'''
+                {{
+                  analytics(from: {frm}, to: {to}, resolution: {resolution.value}, sid: "{sid}") {{
+                    ts
+                    {columns}
+                  }}
+                }}'''
+                data = (await self._gql(q))["analytics"]
+                if not data["ts"]:
+                    continue
+                index = pd.to_datetime(data["ts"], unit="ms", utc=True).rename("time")
+                df = pd.DataFrame(
+                    {str(vid): data[field]["avg"] for vid, field in zip(vids, fields)},
+                    index=index,
+                )
             if points and len(df) > points:
                 step = max(1, math.ceil(len(df) / points))
                 df = df.iloc[::step]
@@ -261,23 +315,7 @@ class CloudGQLDriver(BaseDriver):
             return pd.DataFrame()
         return pd.concat(frames, axis=1).sort_index()
 
-    # --- history (unchanged REST) -------------------------------------
-
-    # async def fetch_history(
-    #         self,
-    #         selectors: List[VarSelector],
-    #         *,
-    #         measurement_id: UUID,
-    #         start_ms: float = 0,
-    #         end_ms: float = 0,
-    #         points: int = 2048,
-    # ) -> pd.DataFrame:
-    #     variables = selectors
-    #     var_ids = [s.VID for s in selectors]
-    #     req = BufferRequest(Start=start_ms, End=end_ms, Points=points, Variables=variables)
-    #     r = await self.http.post("/kafka/data", json=req.model_dump(by_alias=True, mode="json"))
-    #     ts = BufferSuccess.model_validate(r.json()).first_timeseries()
-    #     return _to_frame_from_ts(ts, var_ids)
+    # --- history (same cloud resolution selection as buffer) ----------
 
     async def fetch_history(
             self,
@@ -286,13 +324,15 @@ class CloudGQLDriver(BaseDriver):
             measurement_id: UUID,
             start_ms: float = 0,
             end_ms: float = 0,
-            points: int = 2048,
+            points: Optional[int] = None,
+            resolution: Optional[Resolution] = None,
     ) -> pd.DataFrame:
         return await self.fetch_buffer(
             selectors,
             start_ms=start_ms,
             end_ms=end_ms,
             points=points,
+            resolution=resolution,
         )
 
     async def _stream_name(self, sid: Union[str, UUID, int]) -> str:
